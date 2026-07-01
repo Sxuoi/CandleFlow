@@ -41,29 +41,57 @@
     </div>
   </header>
 
-  <!-- ═══════════ Chart Area ═══════════ -->
-  <main id="chart-wrapper">
-    <div id="chart-container"></div>
+  <div id="app-container">
+    <!-- ═══════════ Chart Area ═══════════ -->
+    <main id="chart-wrapper">
+      <div id="chart-container"></div>
 
-    <!-- OHLCV legend (updated on crosshair move) -->
-    <div id="chart-legend"></div>
+      <!-- OHLCV legend (updated on crosshair move) -->
+      <div id="chart-legend"></div>
 
-    <!-- Drag-and-drop overlay -->
-    <div id="drop-zone" class="hidden">
-      <div class="drop-zone-inner">
-        <div class="drop-icon">📄</div>
-        <p>Drop your MT5 CSV file here</p>
+      <!-- Drag-and-drop overlay -->
+      <div id="drop-zone" class="hidden">
+        <div class="drop-zone-inner">
+          <div class="drop-icon">📄</div>
+          <p>Drop your MT5 CSV file here</p>
+        </div>
       </div>
-    </div>
 
-    <!-- Demo data banner (shown until user loads their own CSV) -->
-    <div id="demo-banner" class="hidden">
-      <span>📊 Viewing demo data</span>
-      <span class="demo-sep">—</span>
-      <button id="btn-open-file-hero" class="btn-primary btn-sm">Open your CSV</button>
-      <span class="demo-sep">or drag &amp; drop anywhere</span>
-    </div>
-  </main>
+      <!-- Demo data banner (shown until user loads their own CSV) -->
+      <div id="demo-banner" class="hidden">
+        <span>📊 Viewing demo data</span>
+        <span class="demo-sep">—</span>
+        <button id="btn-open-file-hero" class="btn-primary btn-sm">Open your CSV</button>
+        <span class="demo-sep">or drag &amp; drop anywhere</span>
+      </div>
+    </main>
+
+    <!-- ═══════════ Right Sidebar ═══════════ -->
+    <aside id="sidebar" class="collapsed">
+      <div class="sidebar-header">
+        <h3>Stored Datasets</h3>
+        <button id="btn-close-sidebar" title="Close Panel">✕</button>
+      </div>
+      <div class="sidebar-content">
+        <div id="datasets-list-empty" class="empty-list-msg">
+          <p>No stored datasets found.</p>
+          <p class="sub">Import MT5 CSV data to save it locally.</p>
+        </div>
+        <ul id="datasets-list" class="datasets-ul"></ul>
+      </div>
+      <!-- Mock Actions for testing userState persistence in Phase 6 -->
+      <div class="sidebar-footer">
+        <button id="btn-mock-save" class="btn-primary btn-sm" title="Simulate saving drawings and indicators for the active dataset">🧪 Save Mock Drawings State</button>
+      </div>
+    </aside>
+
+    <!-- ═══════════ Right Toolbar ═══════════ -->
+    <nav id="right-toolbar">
+      <button id="btn-toggle-datasets" title="Stored Datasets" class="toolbar-btn">
+        📁
+      </button>
+    </nav>
+  </div>
 
   <!-- ═══════════ Notifications ═══════════ -->
   <div id="notifications"></div>

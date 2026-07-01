@@ -7,7 +7,7 @@
 import { parseCSV } from './csv-parser.js';
 import { inferFromFilename } from './infer.js';
 import { openFilePicker, reopenLastFile, setupDragDrop, hasFileSystemAccess } from './file-loader.js';
-import { generateSignature, saveDataset } from './db.js';
+import { generateSignature, saveDataset, listDatasets, loadDataset, deleteDataset, saveUserState, setLastActiveSignature, getLastActiveSignature } from './db.js';
 import { ChartManager } from './chart.js';
 import { generateDemoData, DEMO_META } from './demo-data.js';
 import { aggregateCandles, TIMEFRAME_MINUTES } from './aggregation.js';
@@ -30,8 +30,17 @@ const loadingOverlay  = document.getElementById('loading-overlay');
 const loadingText     = document.getElementById('loading-text');
 const notifications   = document.getElementById('notifications');
 
+// Sidebar DOM elements
+const sidebar         = document.getElementById('sidebar');
+const btnCloseSidebar = document.getElementById('btn-close-sidebar');
+const btnToggleSide   = document.getElementById('btn-toggle-datasets');
+const datasetsList    = document.getElementById('datasets-list');
+const datasetsEmpty   = document.getElementById('datasets-list-empty');
+const btnMockSave     = document.getElementById('btn-mock-save');
+
 let chartManager = null;
 let currentMeta  = null;
+let currentSignature = null;
 
 let currentBaseCandles = null;
 let currentBaseTimeframe = null;
@@ -140,7 +149,10 @@ async function processFile({ text, fileName, fileSize }) {
   try {
     const sig = await generateSignature(currentMeta);
     currentMeta.signature = sig;
+    currentSignature = sig;
     await saveDataset(sig, currentMeta, result.candles);
+    await setLastActiveSignature(sig);
+    refreshSidebarList();
   } catch (e) {
     console.error('[CandleFlow] IndexedDB save failed:', e);
     notify('Could not save to IndexedDB — chart will still render.', 'warning');
@@ -257,6 +269,150 @@ async function switchTimeframe(targetTf) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  Sidebar & Stored Datasets Controllers
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function escapeHTML(str) {
+  if (!str) return '';
+  return str.toString()
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+async function refreshSidebarList() {
+  if (!datasetsList || !datasetsEmpty) return;
+
+  try {
+    const list = await listDatasets();
+    datasetsList.innerHTML = '';
+
+    if (list.length === 0) {
+      datasetsEmpty.classList.remove('hidden');
+      return;
+    }
+
+    datasetsEmpty.classList.add('hidden');
+    list.forEach(item => {
+      const li = document.createElement('li');
+      const isActive = item.signature === currentSignature;
+      li.className = `dataset-item ${isActive ? 'active' : ''}`;
+      li.dataset.sig = item.signature;
+
+      const start = new Date(item.meta.firstTimestamp * 1000).toLocaleDateString();
+      const end = new Date(item.meta.lastTimestamp * 1000).toLocaleDateString();
+      const bars = item.meta.candleCount.toLocaleString();
+
+      li.innerHTML = `
+        <div class="dataset-item-header">
+          <span class="dataset-item-title">${escapeHTML(item.meta.symbol)}</span>
+          <span class="dataset-item-tf">${escapeHTML(item.meta.timeframe)}</span>
+        </div>
+        <div class="dataset-item-details">
+          <div>${start} - ${end}</div>
+          <div>${bars} bars • ${item.drawingsCount} drawings</div>
+        </div>
+        <div class="dataset-item-actions">
+          <button class="dataset-action-btn btn-load" title="Load dataset">📂 Load</button>
+          <button class="dataset-action-btn btn-delete" title="Delete dataset">🗑️</button>
+        </div>
+      `;
+
+      datasetsList.appendChild(li);
+    });
+  } catch (err) {
+    console.error('Failed to list datasets:', err);
+  }
+}
+
+function toggleSidebar(forceState) {
+  if (!sidebar || !btnToggleSide) return;
+  const isCollapsed = sidebar.classList.contains('collapsed');
+  const shouldCollapse = forceState !== undefined ? !forceState : !isCollapsed;
+
+  if (shouldCollapse) {
+    sidebar.classList.add('collapsed');
+    btnToggleSide.classList.remove('active');
+  } else {
+    sidebar.classList.remove('collapsed');
+    btnToggleSide.classList.add('active');
+    refreshSidebarList();
+  }
+}
+
+async function loadStoredDataset(signature) {
+  showLoading('Loading saved dataset…');
+  await tick();
+
+  try {
+    const data = await loadDataset(signature);
+    if (!data) {
+      notify('Dataset not found in storage.', 'error');
+      return false;
+    }
+
+    currentSignature = signature;
+    currentMeta = data.meta;
+    currentBaseCandles = data.candles;
+    currentBaseTimeframe = data.meta.timeframe;
+    currentTimeframe = data.meta.timeframe;
+    aggregationCache = { [data.meta.timeframe]: data.candles };
+
+    console.log('[CandleFlow] Loaded saved state:', {
+      drawingsCount: data.drawings.length,
+      indicatorsCount: data.indicators.length,
+      replayState: data.replayState
+    });
+
+    renderChart(data.candles);
+    updateHeader();
+    updateTimeframeButtons();
+    
+    await setLastActiveSignature(signature);
+
+    demoBanner?.classList.add('hidden');
+    btnEditMeta.disabled = false;
+    refreshSidebarList();
+    
+    notify(`Loaded ${data.meta.symbol} ${data.meta.timeframe} from storage`, 'success');
+    return true;
+  } catch (err) {
+    console.error('Failed to load stored dataset:', err);
+    notify('Failed to load dataset from IndexedDB.', 'error');
+    return false;
+  } finally {
+    hideLoading();
+  }
+}
+
+async function deleteStoredDataset(signature) {
+  const list = await listDatasets();
+  const dataset = list.find(d => d.signature === signature);
+  if (!dataset) return;
+
+  const confirmDelete = confirm(`Are you sure you want to delete the dataset for "${dataset.meta.symbol} ${dataset.meta.timeframe}"?\nThis will remove all candles, indicators, and drawings.`);
+  if (!confirmDelete) return;
+
+  try {
+    await deleteDataset(signature);
+    notify(`Deleted dataset ${dataset.meta.symbol} from storage`, 'success');
+
+    if (signature === currentSignature) {
+      currentSignature = null;
+      await setLastActiveSignature(null);
+      loadDemo();
+    } else {
+      refreshSidebarList();
+    }
+  } catch (err) {
+    console.error('Failed to delete dataset:', err);
+    notify('Failed to delete dataset from IndexedDB.', 'error');
+  }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  Event bindings
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -326,6 +482,60 @@ if (tfSelector) {
   });
 }
 
+// ── Sidebar toggles ──
+if (btnToggleSide) {
+  btnToggleSide.addEventListener('click', () => toggleSidebar());
+}
+if (btnCloseSidebar) {
+  btnCloseSidebar.addEventListener('click', () => toggleSidebar(false));
+}
+
+// ── Sidebar list clicks (Load / Delete) ──
+if (datasetsList) {
+  datasetsList.addEventListener('click', async (e) => {
+    const itemEl = e.target.closest('.dataset-item');
+    if (!itemEl) return;
+    const sig = itemEl.dataset.sig;
+
+    if (e.target.closest('.btn-delete')) {
+      e.stopPropagation();
+      await deleteStoredDataset(sig);
+    } else if (e.target.closest('.btn-load') || e.target.closest('.dataset-item')) {
+      await loadStoredDataset(sig);
+    }
+  });
+}
+
+// ── Mock Save trigger (Phase 6 testing) ──
+if (btnMockSave) {
+  btnMockSave.addEventListener('click', async () => {
+    if (!currentSignature) {
+      notify('Please load a user dataset first (demo data cannot be modified).', 'warning');
+      return;
+    }
+
+    try {
+      const mockDrawings = [
+        { id: 1, type: 'trend', points: [{ t: Date.now(), p: 4300 }, { t: Date.now() + 3600, p: 4400 }] }
+      ];
+      const mockIndicators = [
+        { type: 'SMA', period: 20 }
+      ];
+
+      await saveUserState(currentSignature, {
+        drawings: mockDrawings,
+        indicators: mockIndicators
+      });
+
+      notify('Saved mock drawings and indicators state successfully!', 'success');
+      refreshSidebarList();
+    } catch (e) {
+      console.error(e);
+      notify('Mock save failed', 'error');
+    }
+  });
+}
+
 // ── Edit meta ──
 btnEditMeta.addEventListener('click', async () => {
   if (!currentMeta) return;
@@ -351,6 +561,16 @@ btnEditMeta.addEventListener('click', async () => {
       chartManager.setData(currentBaseCandles);
     }
   }
+
+  if (currentSignature) {
+    try {
+      await saveUserState(currentSignature, { meta: currentMeta });
+      refreshSidebarList();
+      notify('Updated metadata in storage.', 'success');
+    } catch (e) {
+      console.error('Failed to update metadata in IndexedDB:', e);
+    }
+  }
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -368,7 +588,18 @@ btnEditMeta.addEventListener('click', async () => {
     }
   }
 
-  // No saved file — show demo chart
+  // Restore last active signature on startup
+  try {
+    const lastSig = await getLastActiveSignature();
+    if (lastSig) {
+      const loaded = await loadStoredDataset(lastSig);
+      if (loaded) return;
+    }
+  } catch (e) {
+    console.log('[CandleFlow] Could not restore last session:', e);
+  }
+
+  // No saved file or session — show demo chart
   loadDemo();
 })();
 
@@ -376,6 +607,7 @@ function loadDemo() {
   const candles = generateDemoData();
   currentMeta = { ...DEMO_META, firstTimestamp: candles[0].time, lastTimestamp: candles[candles.length - 1].time, candleCount: candles.length };
   
+  currentSignature = null;
   currentBaseCandles = candles;
   currentBaseTimeframe = DEMO_META.timeframe;
   currentTimeframe = DEMO_META.timeframe;
@@ -385,4 +617,5 @@ function loadDemo() {
   updateHeader();
   updateTimeframeButtons();
   demoBanner?.classList.remove('hidden');
+  refreshSidebarList();
 }
