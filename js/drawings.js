@@ -94,6 +94,13 @@ export class DrawingsManager {
     this.currentDrawing = null;
     this.isDragging = false;
     
+    // Sync toolbar active button class in the DOM
+    const btn = document.querySelector(`.tool-btn[data-tool="${tool}"]`);
+    if (btn) {
+      document.querySelectorAll('.tool-btn[data-tool]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    }
+
     // Configure LWC scrolling based on tool
     this.configureChartInteraction();
     this.repaint();
@@ -102,7 +109,7 @@ export class DrawingsManager {
   configureChartInteraction() {
     // Disable LWC scroll/pan when drawing shapes so mouse drags draw rather than scroll the chart
     const isDrawingTool = [
-      'trend', 'info_line', 'ray', 'extended', 'trend_angle', 'fib', 'cyclic',
+      'trend', 'info_line', 'ray', 'extended', 'trend_angle', 'fib', 'cyclic', 'rectangle', 'circle',
       'path', 'brush', 'ruler', 'zoom'
     ].includes(this.activeTool);
     this.chart.applyOptions({
@@ -350,6 +357,17 @@ export class DrawingsManager {
             const newY = origCoords.y + deltaY;
             const snappedPoint = this.getSnappedPoint(newX, newY);
             drawing.points[this.dragStart.handleIndex] = snappedPoint;
+
+            // Sync horizontal boundaries for Long/Short Position
+            if (drawing.type === 'long_position' || drawing.type === 'short_position') {
+              if (this.dragStart.handleIndex === 1) {
+                // Dragging Target: sync Stop's time to Target's time
+                drawing.points[2].time = drawing.points[1].time;
+              } else if (this.dragStart.handleIndex === 2) {
+                // Dragging Stop: sync Target's time to Stop's time
+                drawing.points[1].time = drawing.points[2].time;
+              }
+            }
           }
         } else {
           // Drag whole drawing
@@ -445,8 +463,8 @@ export class DrawingsManager {
   }
 
   startDrawingMode(snapped, pos) {
-    const twoClickTools = ['trend', 'info_line', 'ray', 'extended', 'trend_angle', 'fib', 'cyclic'];
-    const singleClickTools = ['horizontal_line', 'horizontal_ray', 'vertical_line', 'crossline', 'horizontal'];
+    const twoClickTools = ['trend', 'info_line', 'ray', 'extended', 'trend_angle', 'fib', 'cyclic', 'rectangle', 'circle'];
+    const singleClickTools = ['horizontal_line', 'horizontal_ray', 'vertical_line', 'crossline', 'horizontal', 'long_position', 'short_position'];
 
     if (twoClickTools.includes(this.activeTool)) {
       if (!this.isDrawing) {
@@ -466,12 +484,38 @@ export class DrawingsManager {
       }
     } else if (singleClickTools.includes(this.activeTool)) {
       this.isDrawing = false;
-      const type = this.activeTool === 'horizontal' ? 'horizontal_ray' : this.activeTool;
-      const newDrawing = {
-        id: Date.now().toString(),
-        type: type,
-        points: [snapped]
-      };
+      let newDrawing;
+      if (this.activeTool === 'long_position' || this.activeTool === 'short_position') {
+        const idx = this.baseCandles.findIndex(c => c.time === snapped.time);
+        let rightTime = snapped.time + 20 * 60; // default 20 mins
+        if (idx !== -1 && idx + 20 < this.baseCandles.length) {
+          rightTime = this.baseCandles[idx + 20].time;
+        } else if (this.baseCandles.length > 0) {
+          rightTime = this.baseCandles[this.baseCandles.length - 1].time;
+        }
+
+        const price = snapped.price;
+        const isLong = this.activeTool === 'long_position';
+        const targetPrice = isLong ? price * 1.02 : price * 0.98;
+        const stopPrice = isLong ? price * 0.99 : price * 1.01;
+
+        newDrawing = {
+          id: Date.now().toString(),
+          type: this.activeTool,
+          points: [
+            snapped,
+            { time: rightTime, price: targetPrice },
+            { time: rightTime, price: stopPrice }
+          ]
+        };
+      } else {
+        const type = this.activeTool === 'horizontal' ? 'horizontal_ray' : this.activeTool;
+        newDrawing = {
+          id: Date.now().toString(),
+          type: type,
+          points: [snapped]
+        };
+      }
       this.drawings.push(newDrawing);
       this.setTool('cursor');
       this.saveAndNotify();
@@ -621,6 +665,29 @@ export class DrawingsManager {
               t -= dt;
             }
           }
+        }
+      } else if ((d.type === 'long_position' || d.type === 'short_position') && ptsCoords.length >= 3) {
+        const xLeft = ptsCoords[0].x;
+        const xRight = ptsCoords[1].x;
+        const yEntry = ptsCoords[0].y;
+        const yTarget = ptsCoords[1].y;
+        const yStop = ptsCoords[2].y;
+
+        const minX = Math.min(xLeft, xRight);
+        const maxX = Math.max(xLeft, xRight);
+        const minY = Math.min(yTarget, yStop);
+        const maxY = Math.max(yTarget, yStop);
+
+        if (pos.x >= minX - 4 && pos.x <= maxX + 4 && pos.y >= minY - 4 && pos.y <= maxY + 4) {
+          return d;
+        }
+      } else if ((d.type === 'rectangle' || d.type === 'circle') && ptsCoords.length >= 2) {
+        const minX = Math.min(ptsCoords[0].x, ptsCoords[1].x);
+        const maxX = Math.max(ptsCoords[0].x, ptsCoords[1].x);
+        const minY = Math.min(ptsCoords[0].y, ptsCoords[1].y);
+        const maxY = Math.max(ptsCoords[0].y, ptsCoords[1].y);
+        if (pos.x >= minX - 4 && pos.x <= maxX + 4 && pos.y >= minY - 4 && pos.y <= maxY + 4) {
+          return d;
         }
       } else if (d.type === 'ray' && ptsCoords.length >= 2) {
         if (this.distToRay(pos, ptsCoords[0], ptsCoords[1]) < 6) return d;
@@ -843,6 +910,141 @@ export class DrawingsManager {
         this.ctx.beginPath();
         this.ctx.moveTo(x, 0);
         this.ctx.lineTo(x, canvasHeight);
+        this.ctx.stroke();
+      }
+
+      if (isSelected && !this.locked) {
+        this.drawHandle(p1);
+        this.drawHandle(p2);
+      }
+    } else if ((d.type === 'long_position' || d.type === 'short_position') && validCoords.length >= 3) {
+      const pEntry = validCoords[0];
+      const pTarget = validCoords[1];
+      const pStop = validCoords[2];
+
+      const xLeft = pEntry.x;
+      const xRight = pTarget.x;
+      const yEntry = pEntry.y;
+      const yTarget = pTarget.y;
+      const yStop = pStop.y;
+
+      const priceEntry = d.points[0].price;
+      const priceTarget = d.points[1].price;
+      const priceStop = d.points[2].price;
+
+      const isLong = d.type === 'long_position';
+      
+      const targetFill = 'rgba(76, 175, 80, 0.16)'; // profit zone is always green
+      const stopFill = 'rgba(239, 83, 80, 0.16)'; // risk zone is always red
+
+      // Draw boxes
+      this.ctx.fillStyle = targetFill;
+      this.ctx.fillRect(Math.min(xLeft, xRight), Math.min(yEntry, yTarget), Math.abs(xRight - xLeft), Math.abs(yTarget - yEntry));
+
+      this.ctx.fillStyle = stopFill;
+      this.ctx.fillRect(Math.min(xLeft, xRight), Math.min(yEntry, yStop), Math.abs(xRight - xLeft), Math.abs(yStop - yEntry));
+
+      // Draw borders and lines
+      this.ctx.strokeStyle = drawColor;
+      this.ctx.lineWidth = width;
+
+      // Entry
+      this.ctx.beginPath();
+      this.ctx.moveTo(xLeft, yEntry);
+      this.ctx.lineTo(xRight, yEntry);
+      this.ctx.stroke();
+
+      // Target
+      this.ctx.beginPath();
+      this.ctx.moveTo(xLeft, yTarget);
+      this.ctx.lineTo(xRight, yTarget);
+      this.ctx.stroke();
+
+      // Stop
+      this.ctx.beginPath();
+      this.ctx.moveTo(xLeft, yStop);
+      this.ctx.lineTo(xRight, yStop);
+      this.ctx.stroke();
+
+      // Left & Right bounds
+      this.ctx.beginPath();
+      this.ctx.moveTo(xLeft, Math.min(yTarget, yStop));
+      this.ctx.lineTo(xLeft, Math.max(yTarget, yStop));
+      this.ctx.moveTo(xRight, Math.min(yTarget, yStop));
+      this.ctx.lineTo(xRight, Math.max(yTarget, yStop));
+      this.ctx.stroke();
+
+      // Calculate profit/loss %
+      const targetDiff = priceTarget - priceEntry;
+      const targetPct = (targetDiff / priceEntry) * 100;
+      const stopDiff = priceStop - priceEntry;
+      const stopPct = (stopDiff / priceEntry) * 100;
+
+      const risk = Math.abs(priceEntry - priceStop);
+      const reward = Math.abs(priceTarget - priceEntry);
+      const rrRatio = risk > 0 ? (reward / risk).toFixed(2) : '0.00';
+
+      // Labels
+      this.ctx.fillStyle = '#ffffff';
+      this.ctx.font = '10px Inter';
+      this.ctx.fillText(`Target: ${priceTarget.toFixed(2)} (${targetPct.toFixed(2)}%)`, Math.min(xLeft, xRight) + 6, Math.min(yEntry, yTarget) + 12);
+      this.ctx.fillText(`Stop: ${priceStop.toFixed(2)} (${stopPct.toFixed(2)}%)`, Math.min(xLeft, xRight) + 6, Math.max(yEntry, yStop) - 4);
+
+      // R:R Center Box
+      const rrLabel = `Risk/Reward: ${rrRatio}`;
+      const boxWidth = 100;
+      const boxHeight = 16;
+      const boxX = (xLeft + xRight) / 2 - boxWidth / 2;
+      const boxY = yEntry - boxHeight / 2;
+
+      this.ctx.fillStyle = 'rgba(30, 34, 45, 0.85)';
+      this.ctx.strokeStyle = '#2a2e39';
+      this.ctx.lineWidth = 1;
+      this.ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+      this.ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
+
+      this.ctx.fillStyle = '#d1d4dc';
+      this.ctx.textAlign = 'center';
+      this.ctx.fillText(rrLabel, (xLeft + xRight) / 2, boxY + 11);
+      this.ctx.textAlign = 'left';
+
+      if (isSelected && !this.locked) {
+        this.drawHandle(pEntry);
+        this.drawHandle(pTarget);
+        this.drawHandle(pStop);
+      }
+    } else if (d.type === 'rectangle' && validCoords.length >= 2) {
+      const p1 = validCoords[0];
+      const p2 = validCoords[1];
+
+      this.ctx.fillStyle = 'rgba(41, 98, 255, 0.06)';
+      this.ctx.fillRect(p1.x, p1.y, p2.x - p1.x, p2.y - p1.y);
+
+      this.ctx.strokeStyle = drawColor;
+      this.ctx.lineWidth = width;
+      this.ctx.strokeRect(p1.x, p1.y, p2.x - p1.x, p2.y - p1.y);
+
+      if (isSelected && !this.locked) {
+        this.drawHandle(p1);
+        this.drawHandle(p2);
+      }
+    } else if (d.type === 'circle' && validCoords.length >= 2) {
+      const p1 = validCoords[0];
+      const p2 = validCoords[1];
+
+      const cx = (p1.x + p2.x) / 2;
+      const cy = (p1.y + p2.y) / 2;
+      const rx = Math.abs(p2.x - p1.x) / 2;
+      const ry = Math.abs(p2.y - p1.y) / 2;
+
+      if (rx > 0.5 && ry > 0.5) {
+        this.ctx.beginPath();
+        this.ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+        this.ctx.fillStyle = 'rgba(41, 98, 255, 0.06)';
+        this.ctx.fill();
+
+        this.ctx.strokeStyle = drawColor;
+        this.ctx.lineWidth = width;
         this.ctx.stroke();
       }
 
