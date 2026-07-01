@@ -23,9 +23,19 @@
   <header id="top-bar">
     <div id="symbol-info">
       <span id="symbol-name">—</span>
-      <span id="timeframe-badge">—</span>
+      <div id="timeframe-selector" class="timeframe-group">
+        <button class="tf-btn" data-tf="M1">1m</button>
+        <button class="tf-btn" data-tf="M5">5m</button>
+        <button class="tf-btn" data-tf="M15">15m</button>
+        <button class="tf-btn" data-tf="M30">30m</button>
+        <button class="tf-btn" data-tf="H1">1h</button>
+        <button class="tf-btn" data-tf="H4">4h</button>
+        <button class="tf-btn" data-tf="D1">1D</button>
+        <button class="tf-btn" data-tf="W1">1W</button>
+      </div>
     </div>
     <div id="bar-actions">
+      <button id="btn-load-test" title="Load sample XAUUSD M1 CSV">🧪 Test CSV</button>
       <button id="btn-open-file" title="Open CSV file">📂 Open</button>
       <button id="btn-edit-meta" title="Edit symbol / timeframe" disabled>✏️</button>
     </div>
@@ -93,7 +103,7 @@
   </div>
 
   <!-- ═══════════ App Entry Point ═══════════ -->
-  <script type="module" src="js/app.js"></script>
+  <script type="module" src="js/app.js?v=3"></script>
 
 </body>
 </html>

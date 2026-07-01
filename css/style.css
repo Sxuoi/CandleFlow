@@ -62,14 +62,39 @@ body {
   letter-spacing: 0.4px;
 }
 
-#timeframe-badge {
-  font-size: 11px;
-  font-weight: 500;
-  padding: 2px 8px;
-  background: var(--bg-tertiary);
-  border-radius: 4px;
+.timeframe-group {
+  display: flex;
+  gap: 4px;
+  margin-left: 12px;
+}
+
+.tf-btn {
+  background: transparent;
+  border: none;
   color: var(--text-secondary);
-  text-transform: uppercase;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s;
+}
+
+.tf-btn:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.tf-btn.active {
+  background: rgba(41, 98, 255, 0.18);
+  color: #588cff;
+  font-weight: 600;
+}
+
+.tf-btn:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
 }
 
 #bar-actions {
@@ -98,6 +123,16 @@ body {
 #bar-actions button:disabled {
   opacity: 0.35;
   cursor: default;
+}
+
+#btn-load-test {
+  border-color: rgba(255, 152, 0, 0.3) !important;
+  color: #ffcc80 !important;
+}
+
+#btn-load-test:hover:not(:disabled) {
+  background: rgba(255, 152, 0, 0.1) !important;
+  color: #ffe0b2 !important;
 }
 
 /* ════════════════════  Chart Area  ════════════════════ */
