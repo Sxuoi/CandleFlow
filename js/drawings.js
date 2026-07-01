@@ -101,7 +101,10 @@ export class DrawingsManager {
 
   configureChartInteraction() {
     // Disable LWC scroll/pan when drawing shapes so mouse drags draw rather than scroll the chart
-    const isDrawingTool = ['trend', 'path', 'brush', 'ruler', 'zoom'].includes(this.activeTool);
+    const isDrawingTool = [
+      'trend', 'info_line', 'ray', 'extended', 'trend_angle', 'fib', 'cyclic',
+      'path', 'brush', 'ruler', 'zoom'
+    ].includes(this.activeTool);
     this.chart.applyOptions({
       handleScroll: {
         pressedMouseMove: !isDrawingTool,
@@ -200,15 +203,41 @@ export class DrawingsManager {
 
     this._eventListeners = { onMouseDown, onMouseMove, onMouseUp, onDoubleClick };
 
-    // Keyboard bindings (Delete key removes selected drawing)
+    // Keyboard bindings (Delete key removes selected drawing, Alt shortcuts activate tools)
     window.addEventListener('keydown', (e) => {
+      if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') {
+        return;
+      }
+
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        // Only trigger if not typing in input annotation field
-        if (document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
-          this.deleteSelected();
-        }
+        this.deleteSelected();
       } else if (e.key === 'Escape') {
         this.cancelActiveDrawing();
+      } else if (e.altKey) {
+        let tool = null;
+        if (e.key.toLowerCase() === 't') {
+          tool = 'trend';
+        } else if (e.key.toLowerCase() === 'h') {
+          tool = 'horizontal_line';
+        } else if (e.key.toLowerCase() === 'j') {
+          tool = 'horizontal_ray';
+        } else if (e.key.toLowerCase() === 'v') {
+          tool = 'vertical_line';
+        } else if (e.key.toLowerCase() === 'c') {
+          tool = 'crossline';
+        }
+
+        if (tool) {
+          e.preventDefault();
+          this.setTool(tool);
+          
+          // Sync toolbar active button class
+          const btn = document.querySelector(`.tool-btn[data-tool="${tool}"]`);
+          if (btn) {
+            document.querySelectorAll('.tool-btn[data-tool]').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+          }
+        }
       }
     });
   }
@@ -416,16 +445,18 @@ export class DrawingsManager {
   }
 
   startDrawingMode(snapped, pos) {
-    if (this.activeTool === 'trend') {
+    const twoClickTools = ['trend', 'info_line', 'ray', 'extended', 'trend_angle', 'fib', 'cyclic'];
+    const singleClickTools = ['horizontal_line', 'horizontal_ray', 'vertical_line', 'crossline', 'horizontal'];
+
+    if (twoClickTools.includes(this.activeTool)) {
       if (!this.isDrawing) {
         this.isDrawing = true;
         this.currentDrawing = {
           id: Date.now().toString(),
-          type: 'trend',
+          type: this.activeTool,
           points: [snapped, snapped]
         };
       } else {
-        // Second click completes Trend Line
         this.isDrawing = false;
         this.currentDrawing.points[1] = snapped;
         this.drawings.push(this.currentDrawing);
@@ -433,11 +464,12 @@ export class DrawingsManager {
         this.setTool('cursor');
         this.saveAndNotify();
       }
-    } else if (this.activeTool === 'horizontal') {
+    } else if (singleClickTools.includes(this.activeTool)) {
       this.isDrawing = false;
+      const type = this.activeTool === 'horizontal' ? 'horizontal_ray' : this.activeTool;
       const newDrawing = {
         id: Date.now().toString(),
-        type: 'horizontal',
+        type: type,
         points: [snapped]
       };
       this.drawings.push(newDrawing);
@@ -551,11 +583,63 @@ export class DrawingsManager {
       const ptsCoords = d.points.map(pt => this.getPixelCoords(pt)).filter(Boolean);
       if (ptsCoords.length === 0) continue;
 
-      if (d.type === 'trend' && ptsCoords.length >= 2) {
+      if ((d.type === 'trend' || d.type === 'info_line' || d.type === 'trend_angle') && ptsCoords.length >= 2) {
         if (this.distToSegment(pos, ptsCoords[0], ptsCoords[1]) < 6) return d;
-      } else if (d.type === 'horizontal') {
+      } else if (d.type === 'fib' && ptsCoords.length >= 2) {
+        if (this.distToSegment(pos, ptsCoords[0], ptsCoords[1]) < 6) return d;
+        const price1 = d.points[0].price;
+        const price2 = d.points[1].price;
+        const diff = price2 - price1;
+        const ratios = [0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0];
+        for (const r of ratios) {
+          const y = this.priceToY(price1 + r * diff);
+          if (y !== null && Math.abs(pos.y - y) < 6) {
+            const minX = Math.min(ptsCoords[0].x, ptsCoords[1].x);
+            const maxX = Math.max(ptsCoords[0].x, ptsCoords[1].x);
+            if (pos.x >= minX - 4 && pos.x <= maxX + 4) return d;
+          }
+        }
+      } else if (d.type === 'cyclic' && ptsCoords.length >= 2) {
+        const t1 = d.points[0].time;
+        const t2 = d.points[1].time;
+        const dt = Math.abs(t2 - t1);
+        if (dt === 0) {
+          if (Math.abs(pos.x - ptsCoords[0].x) < 6) return d;
+        } else {
+          const visibleRange = this.chart.timeScale().getVisibleRange();
+          if (visibleRange && visibleRange.from && visibleRange.to) {
+            let t = t1;
+            while (t <= visibleRange.to) {
+              const x = this.timeToX(t);
+              if (x !== null && Math.abs(pos.x - x) < 6) return d;
+              t += dt;
+            }
+            t = t1 - dt;
+            while (t >= visibleRange.from) {
+              const x = this.timeToX(t);
+              if (x !== null && Math.abs(pos.x - x) < 6) return d;
+              t -= dt;
+            }
+          }
+        }
+      } else if (d.type === 'ray' && ptsCoords.length >= 2) {
+        if (this.distToRay(pos, ptsCoords[0], ptsCoords[1]) < 6) return d;
+      } else if (d.type === 'extended' && ptsCoords.length >= 2) {
+        if (this.distToLine(pos, ptsCoords[0], ptsCoords[1]) < 6) return d;
+      } else if (d.type === 'horizontal_line') {
         const y = ptsCoords[0].y;
         if (Math.abs(pos.y - y) < 6) return d;
+      } else if (d.type === 'horizontal_ray' || d.type === 'horizontal') {
+        const y = ptsCoords[0].y;
+        const x = ptsCoords[0].x;
+        if (Math.abs(pos.y - y) < 6 && pos.x >= x - 4) return d;
+      } else if (d.type === 'vertical_line') {
+        const x = ptsCoords[0].x;
+        if (Math.abs(pos.x - x) < 6) return d;
+      } else if (d.type === 'crossline') {
+        const x = ptsCoords[0].x;
+        const y = ptsCoords[0].y;
+        if (Math.abs(pos.x - x) < 6 || Math.abs(pos.y - y) < 6) return d;
       } else if (d.type === 'path') {
         for (let j = 0; j < ptsCoords.length - 1; j++) {
           if (this.distToSegment(pos, ptsCoords[j], ptsCoords[j + 1]) < 6) return d;
@@ -593,6 +677,27 @@ export class DrawingsManager {
     });
   }
 
+  distToLine(p, v, w) {
+    const l2 = (v.x - w.x) ** 2 + (v.y - w.y) ** 2;
+    if (l2 === 0) return this.distance(p, v);
+    const t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+    return this.distance(p, {
+      x: v.x + t * (w.x - v.x),
+      y: v.y + t * (w.y - v.y)
+    });
+  }
+
+  distToRay(p, v, w) {
+    const l2 = (v.x - w.x) ** 2 + (v.y - w.y) ** 2;
+    if (l2 === 0) return this.distance(p, v);
+    let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+    t = Math.max(0, t);
+    return this.distance(p, {
+      x: v.x + t * (w.x - v.x),
+      y: v.y + t * (w.y - v.y)
+    });
+  }
+
   // ── Render loop ──
 
   repaint() {
@@ -619,6 +724,9 @@ export class DrawingsManager {
     const drawColor = isSelected ? '#2962ff' : (isHovered ? '#588cff' : '#d1d4dc');
     const width = isSelected || isHovered ? 2 : 1.5;
 
+    const canvasWidth = this.canvas.width / (window.devicePixelRatio || 1);
+    const canvasHeight = this.canvas.height / (window.devicePixelRatio || 1);
+
     this.ctx.save();
 
     if (d.type === 'trend' && validCoords.length >= 2) {
@@ -634,15 +742,314 @@ export class DrawingsManager {
         this.drawHandle(validCoords[0]);
         this.drawHandle(validCoords[1]);
       }
-    } else if (d.type === 'horizontal') {
-      // Draw Horizontal Ray (extends infinitely to the right)
+    } else if (d.type === 'fib' && validCoords.length >= 2) {
+      const p1 = validCoords[0];
+      const p2 = validCoords[1];
+      const price1 = d.points[0].price;
+      const price2 = d.points[1].price;
+      const diff = price2 - price1;
+
+      // Diagonal swing line (dotted reference line)
+      this.ctx.strokeStyle = 'rgba(209, 212, 220, 0.4)';
+      this.ctx.lineWidth = 1;
+      this.ctx.setLineDash([3, 3]);
+      this.ctx.beginPath();
+      this.ctx.moveTo(p1.x, p1.y);
+      this.ctx.lineTo(p2.x, p2.y);
+      this.ctx.stroke();
+      this.ctx.setLineDash([]);
+
+      const levels = [
+        { ratio: 0.0, label: '0.00%', color: 'rgba(239, 83, 80, 0.06)' },
+        { ratio: 0.236, label: '23.6%', color: 'rgba(255, 152, 0, 0.05)' },
+        { ratio: 0.382, label: '38.2%', color: 'rgba(76, 175, 80, 0.05)' },
+        { ratio: 0.5, label: '50.0%', color: 'rgba(33, 150, 243, 0.05)' },
+        { ratio: 0.618, label: '61.8%', color: 'rgba(255, 235, 59, 0.05)' },
+        { ratio: 0.786, label: '78.6%', color: 'rgba(156, 39, 176, 0.05)' },
+        { ratio: 1.0, label: '100.0%', color: 'rgba(239, 83, 80, 0.06)' }
+      ];
+
+      // Draw background bands
+      for (let i = 0; i < levels.length - 1; i++) {
+        const yA = this.priceToY(price1 + levels[i].ratio * diff);
+        const yB = this.priceToY(price1 + levels[i + 1].ratio * diff);
+        if (yA !== null && yB !== null) {
+          this.ctx.fillStyle = levels[i].color;
+          this.ctx.fillRect(Math.min(p1.x, p2.x), Math.min(yA, yB), Math.abs(p2.x - p1.x), Math.abs(yB - yA));
+        }
+      }
+
+      // Draw horizontal lines & text labels
+      levels.forEach(level => {
+        const lvlPrice = price1 + level.ratio * diff;
+        const y = this.priceToY(lvlPrice);
+        if (y !== null) {
+          this.ctx.strokeStyle = drawColor;
+          this.ctx.lineWidth = 1;
+          this.ctx.beginPath();
+          this.ctx.moveTo(p1.x, y);
+          this.ctx.lineTo(p2.x, y);
+          this.ctx.stroke();
+
+          const label = `${(level.ratio * 100).toFixed(1)}% (${lvlPrice.toFixed(2)})`;
+          this.ctx.fillStyle = '#d1d4dc';
+          this.ctx.font = '10px Inter';
+          this.ctx.fillText(label, p1.x + 4, y - 4);
+        }
+      });
+
+      if (isSelected && !this.locked) {
+        this.drawHandle(p1);
+        this.drawHandle(p2);
+      }
+    } else if (d.type === 'cyclic' && validCoords.length >= 2) {
+      const p1 = validCoords[0];
+      const p2 = validCoords[1];
+      const t1 = d.points[0].time;
+      const t2 = d.points[1].time;
+      const dt = Math.abs(t2 - t1);
+
+      const visibleRange = this.chart.timeScale().getVisibleRange();
+      if (visibleRange && visibleRange.from && visibleRange.to && dt > 0) {
+        const cycles = [];
+        let t = t1;
+        while (t <= visibleRange.to) {
+          cycles.push(t);
+          t += dt;
+        }
+        t = t1 - dt;
+        while (t >= visibleRange.from) {
+          cycles.push(t);
+          t -= dt;
+        }
+
+        this.ctx.strokeStyle = drawColor;
+        this.ctx.lineWidth = width;
+        this.ctx.setLineDash([4, 4]);
+        cycles.forEach(tCycle => {
+          const x = this.timeToX(tCycle);
+          if (x !== null) {
+            this.ctx.beginPath();
+            this.ctx.moveTo(x, 0);
+            this.ctx.lineTo(x, canvasHeight);
+            this.ctx.stroke();
+          }
+        });
+        this.ctx.setLineDash([]);
+      } else {
+        const x = p1.x;
+        this.ctx.strokeStyle = drawColor;
+        this.ctx.lineWidth = width;
+        this.ctx.beginPath();
+        this.ctx.moveTo(x, 0);
+        this.ctx.lineTo(x, canvasHeight);
+        this.ctx.stroke();
+      }
+
+      if (isSelected && !this.locked) {
+        this.drawHandle(p1);
+        this.drawHandle(p2);
+      }
+    } else if (d.type === 'ray' && validCoords.length >= 2) {
+      const p1 = validCoords[0];
+      const p2 = validCoords[1];
+      const dx = p2.x - p1.x;
+      const dy = p2.y - p1.y;
+      const len = Math.sqrt(dx * dx + dy * dy);
+
+      this.ctx.strokeStyle = drawColor;
+      this.ctx.lineWidth = width;
+      this.ctx.beginPath();
+      this.ctx.moveTo(p1.x, p1.y);
+      if (len > 0.1) {
+        const extendDist = Math.max(canvasWidth, canvasHeight) * 2;
+        this.ctx.lineTo(p1.x + (dx / len) * extendDist, p1.y + (dy / len) * extendDist);
+      } else {
+        this.ctx.lineTo(p2.x, p2.y);
+      }
+      this.ctx.stroke();
+
+      if (isSelected && !this.locked) {
+        this.drawHandle(p1);
+        this.drawHandle(p2);
+      }
+    } else if (d.type === 'extended' && validCoords.length >= 2) {
+      const p1 = validCoords[0];
+      const p2 = validCoords[1];
+      const dx = p2.x - p1.x;
+      const dy = p2.y - p1.y;
+      const len = Math.sqrt(dx * dx + dy * dy);
+
+      this.ctx.strokeStyle = drawColor;
+      this.ctx.lineWidth = width;
+      this.ctx.beginPath();
+      if (len > 0.1) {
+        const extendDist = Math.max(canvasWidth, canvasHeight) * 2;
+        this.ctx.moveTo(p1.x - (dx / len) * extendDist, p1.y - (dy / len) * extendDist);
+        this.ctx.lineTo(p1.x + (dx / len) * extendDist, p1.y + (dy / len) * extendDist);
+      } else {
+        this.ctx.moveTo(p1.x, p1.y);
+        this.ctx.lineTo(p2.x, p2.y);
+      }
+      this.ctx.stroke();
+
+      if (isSelected && !this.locked) {
+        this.drawHandle(p1);
+        this.drawHandle(p2);
+      }
+    } else if (d.type === 'info_line' && validCoords.length >= 2) {
+      const p1 = validCoords[0];
+      const p2 = validCoords[1];
+
+      // Draw segment line
+      this.ctx.strokeStyle = drawColor;
+      this.ctx.lineWidth = width;
+      this.ctx.beginPath();
+      this.ctx.moveTo(p1.x, p1.y);
+      this.ctx.lineTo(p2.x, p2.y);
+      this.ctx.stroke();
+
+      // Calculate details
+      const price1 = d.points[0].price;
+      const price2 = d.points[1].price;
+      const diffPrice = price2 - price1;
+      const diffPct = (diffPrice / price1) * 100;
+
+      // Calculate bars count
+      const time1 = d.points[0].time;
+      const time2 = d.points[1].time;
+      let barCount = 0;
+      if (this.baseCandles.length > 0 && time1 !== null && time2 !== null) {
+        const i1 = this.baseCandles.findIndex(c => c.time === time1);
+        const i2 = this.baseCandles.findIndex(c => c.time === time2);
+        if (i1 !== -1 && i2 !== -1) {
+          barCount = Math.abs(i2 - i1);
+        }
+      }
+
+      // Draw metric label box at the center of the line segment
+      const label = `${diffPrice.toFixed(2)} (${(diffPrice >= 0 ? '+' : '')}${diffPct.toFixed(2)}%) • ${barCount} bars`;
+      const labelX = (p1.x + p2.x) / 2;
+      const labelY = (p1.y + p2.y) / 2 - 12;
+
+      this.ctx.fillStyle = 'rgba(30, 34, 45, 0.85)';
+      this.ctx.strokeStyle = '#2a2e39';
+      this.ctx.lineWidth = 1;
+
+      this.ctx.font = '10px Inter';
+      const textWidth = this.ctx.measureText(label).width;
+
+      this.ctx.fillRect(labelX - textWidth / 2 - 4, labelY - 10, textWidth + 8, 16);
+      this.ctx.strokeRect(labelX - textWidth / 2 - 4, labelY - 10, textWidth + 8, 16);
+
+      this.ctx.fillStyle = '#d1d4dc';
+      this.ctx.textAlign = 'center';
+      this.ctx.fillText(label, labelX, labelY + 2);
+      this.ctx.textAlign = 'left'; // restore default
+
+      if (isSelected && !this.locked) {
+        this.drawHandle(p1);
+        this.drawHandle(p2);
+      }
+    } else if (d.type === 'trend_angle' && validCoords.length >= 2) {
+      const p1 = validCoords[0];
+      const p2 = validCoords[1];
+
+      // Draw segment line
+      this.ctx.strokeStyle = drawColor;
+      this.ctx.lineWidth = width;
+      this.ctx.beginPath();
+      this.ctx.moveTo(p1.x, p1.y);
+      this.ctx.lineTo(p2.x, p2.y);
+      this.ctx.stroke();
+
+      // Calculate angle in screen space (y down, so invert dy)
+      const angleDeg = -Math.atan2(p2.y - p1.y, p2.x - p1.x) * 180 / Math.PI;
+
+      // Draw horizontal reference dashed line from p1 to p2.x
+      this.ctx.strokeStyle = 'rgba(209, 212, 220, 0.3)';
+      this.ctx.lineWidth = 1;
+      this.ctx.setLineDash([2, 2]);
+      this.ctx.beginPath();
+      this.ctx.moveTo(p1.x, p1.y);
+      this.ctx.lineTo(p2.x, p1.y);
+      this.ctx.stroke();
+      this.ctx.setLineDash([]);
+
+      // Draw angle text bubble near p2
+      const label = `${angleDeg.toFixed(1)}°`;
+      const labelX = p2.x + 8;
+      const labelY = p2.y;
+
+      this.ctx.fillStyle = 'rgba(30, 34, 45, 0.85)';
+      this.ctx.strokeStyle = '#2a2e39';
+      this.ctx.lineWidth = 1;
+      this.ctx.font = '10px Inter';
+      const textWidth = this.ctx.measureText(label).width;
+
+      this.ctx.fillRect(labelX - 4, labelY - 10, textWidth + 8, 16);
+      this.ctx.strokeRect(labelX - 4, labelY - 10, textWidth + 8, 16);
+
+      this.ctx.fillStyle = '#d1d4dc';
+      this.ctx.fillText(label, labelX, labelY + 2);
+
+      if (isSelected && !this.locked) {
+        this.drawHandle(p1);
+        this.drawHandle(p2);
+      }
+    } else if (d.type === 'horizontal_line') {
+      const y = validCoords[0].y;
+      this.ctx.strokeStyle = drawColor;
+      this.ctx.lineWidth = width;
+      this.ctx.beginPath();
+      this.ctx.moveTo(0, y);
+      this.ctx.lineTo(canvasWidth, y);
+      this.ctx.stroke();
+
+      if (isSelected && !this.locked) {
+        this.drawHandle(validCoords[0]);
+      }
+    } else if (d.type === 'horizontal_ray' || d.type === 'horizontal') {
       const y = validCoords[0].y;
       const x = validCoords[0].x;
       this.ctx.strokeStyle = drawColor;
       this.ctx.lineWidth = width;
       this.ctx.beginPath();
       this.ctx.moveTo(x, y);
-      this.ctx.lineTo(this.canvas.width / (window.devicePixelRatio || 1), y);
+      this.ctx.lineTo(canvasWidth, y);
+      this.ctx.stroke();
+
+      if (isSelected && !this.locked) {
+        this.drawHandle(validCoords[0]);
+      }
+    } else if (d.type === 'vertical_line') {
+      const x = validCoords[0].x;
+      this.ctx.strokeStyle = drawColor;
+      this.ctx.lineWidth = width;
+      this.ctx.beginPath();
+      this.ctx.moveTo(x, 0);
+      this.ctx.lineTo(x, canvasHeight);
+      this.ctx.stroke();
+
+      if (isSelected && !this.locked) {
+        this.drawHandle(validCoords[0]);
+      }
+    } else if (d.type === 'crossline') {
+      const x = validCoords[0].x;
+      const y = validCoords[0].y;
+      this.ctx.strokeStyle = drawColor;
+      this.ctx.lineWidth = width;
+
+      // Horizontal segment
+      this.ctx.beginPath();
+      this.ctx.moveTo(0, y);
+      this.ctx.lineTo(canvasWidth, y);
+      this.ctx.stroke();
+
+      // Vertical segment
+      this.ctx.beginPath();
+      this.ctx.moveTo(x, 0);
+      this.ctx.lineTo(x, canvasHeight);
       this.ctx.stroke();
 
       if (isSelected && !this.locked) {
