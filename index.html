@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CandleFlow — Offline Charting &amp; Backtesting</title>
+  <meta name="description" content="TradingView-style charting and manual backtesting tool. Load your own MT5 CSV data — everything stays in your browser, nothing is ever transmitted.">
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- TradingView Lightweight Charts v4 -->
+  <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+
+  <!-- App styles -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- ═══════════ Top Bar ═══════════ -->
+  <header id="top-bar">
+    <div id="symbol-info">
+      <span id="symbol-name">—</span>
+      <span id="timeframe-badge">—</span>
+    </div>
+    <div id="bar-actions">
+      <button id="btn-open-file" title="Open CSV file">📂 Open</button>
+      <button id="btn-edit-meta" title="Edit symbol / timeframe" disabled>✏️</button>
+    </div>
+  </header>
+
+  <!-- ═══════════ Chart Area ═══════════ -->
+  <main id="chart-wrapper">
+    <div id="chart-container"></div>
+
+    <!-- OHLCV legend (updated on crosshair move) -->
+    <div id="chart-legend"></div>
+
+    <!-- Drag-and-drop overlay -->
+    <div id="drop-zone" class="hidden">
+      <div class="drop-zone-inner">
+        <div class="drop-icon">📄</div>
+        <p>Drop your MT5 CSV file here</p>
+      </div>
+    </div>
+
+    <!-- Demo data banner (shown until user loads their own CSV) -->
+    <div id="demo-banner" class="hidden">
+      <span>📊 Viewing demo data</span>
+      <span class="demo-sep">—</span>
+      <button id="btn-open-file-hero" class="btn-primary btn-sm">Open your CSV</button>
+      <span class="demo-sep">or drag &amp; drop anywhere</span>
+    </div>
+  </main>
+
+  <!-- ═══════════ Notifications ═══════════ -->
+  <div id="notifications"></div>
+
+  <!-- ═══════════ Meta Override Modal ═══════════ -->
+  <dialog id="meta-modal">
+    <form method="dialog">
+      <h3>Dataset Info</h3>
+      <label>
+        Symbol
+        <input type="text" id="input-symbol" placeholder="e.g. XAUUSD" autocomplete="off" spellcheck="false">
+      </label>
+      <label>
+        Timeframe
+        <select id="input-timeframe">
+          <option value="M1">M1 (1 Minute)</option>
+          <option value="M5">M5 (5 Minutes)</option>
+          <option value="M15">M15 (15 Minutes)</option>
+          <option value="M30">M30 (30 Minutes)</option>
+          <option value="H1">H1 (1 Hour)</option>
+          <option value="H4">H4 (4 Hours)</option>
+          <option value="D1">D1 (Daily)</option>
+          <option value="W1">W1 (Weekly)</option>
+        </select>
+      </label>
+      <div class="modal-actions">
+        <button type="submit" value="cancel">Cancel</button>
+        <button type="submit" value="confirm" class="btn-primary">Confirm</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ═══════════ Loading Overlay ═══════════ -->
+  <div id="loading-overlay" class="hidden">
+    <div class="spinner"></div>
+    <p id="loading-text">Parsing CSV…</p>
+  </div>
+
+  <!-- ═══════════ App Entry Point ═══════════ -->
+  <script type="module" src="js/app.js"></script>
+
+</body>
+</html>
