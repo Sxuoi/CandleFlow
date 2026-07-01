@@ -42,9 +42,27 @@
   </header>
 
   <div id="app-container">
+    <!-- ═══════════ Left Drawing Toolbar ═══════════ -->
+    <nav id="drawing-toolbar">
+      <button class="tool-btn active" data-tool="cursor" title="Cursor (Crosshair)">🖱️</button>
+      <button class="tool-btn" data-tool="trend" title="Trend Line">↗️</button>
+      <button class="tool-btn" data-tool="horizontal" title="Horizontal Ray">➖</button>
+      <button class="tool-btn" data-tool="path" title="Path (Multi-point)">〰️</button>
+      <button class="tool-btn" data-tool="brush" title="Brush (Freehand)">🖌️</button>
+      <button class="tool-btn" data-tool="text" title="Text Annotation">🔤</button>
+      <button class="tool-btn" data-tool="ruler" title="Ruler / Measure">📏</button>
+      <button class="tool-btn" data-tool="zoom" title="Zoom Box">🔍</button>
+      <div class="tool-sep"></div>
+      <button class="tool-btn" id="btn-toggle-magnet" title="Magnet Snap Mode">🧲</button>
+      <button class="tool-btn" id="btn-toggle-lock" title="Lock All Drawings">🔓</button>
+      <button class="tool-btn" id="btn-toggle-visibility" title="Hide All Drawings">👁️</button>
+      <button class="tool-btn" id="btn-clear-drawings" title="Clear All Drawings">🗑️</button>
+    </nav>
+
     <!-- ═══════════ Chart Area ═══════════ -->
     <main id="chart-wrapper">
       <div id="chart-container"></div>
+      <canvas id="drawing-canvas"></canvas>
 
       <!-- OHLCV legend (updated on crosshair move) -->
       <div id="chart-legend"></div>
