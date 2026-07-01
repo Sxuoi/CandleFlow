@@ -10,6 +10,7 @@ import { openFilePicker, reopenLastFile, setupDragDrop, hasFileSystemAccess } fr
 import { generateSignature, saveDataset } from './db.js';
 import { ChartManager } from './chart.js';
 import { generateDemoData, DEMO_META } from './demo-data.js';
+import { aggregateCandles, TIMEFRAME_MINUTES } from './aggregation.js';
 
 // ── DOM refs ──
 const chartContainer  = document.getElementById('chart-container');
@@ -17,7 +18,8 @@ const chartLegend     = document.getElementById('chart-legend');
 const dropZone        = document.getElementById('drop-zone');
 const demoBanner      = document.getElementById('demo-banner');
 const symbolName      = document.getElementById('symbol-name');
-const timeframeBadge  = document.getElementById('timeframe-badge');
+const tfSelector      = document.getElementById('timeframe-selector');
+const btnLoadTest     = document.getElementById('btn-load-test');
 const btnOpenFile     = document.getElementById('btn-open-file');
 const btnOpenFileHero = document.getElementById('btn-open-file-hero');
 const btnEditMeta     = document.getElementById('btn-edit-meta');
@@ -30,6 +32,11 @@ const notifications   = document.getElementById('notifications');
 
 let chartManager = null;
 let currentMeta  = null;
+
+let currentBaseCandles = null;
+let currentBaseTimeframe = null;
+let currentTimeframe = null;
+let aggregationCache = {};
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  Notifications
@@ -144,8 +151,15 @@ async function processFile({ text, fileName, fileSize }) {
   await tick();
   renderChart(result.candles);
 
+  // ── Update State ──
+  currentBaseCandles = result.candles;
+  currentBaseTimeframe = timeframe;
+  currentTimeframe = timeframe;
+  aggregationCache = { [timeframe]: result.candles };
+
   // ── Update UI ──
   updateHeader();
+  updateTimeframeButtons();
   btnEditMeta.disabled = false;
   demoBanner?.classList.add('hidden');
   hideLoading();
@@ -166,12 +180,100 @@ function renderChart(candles) {
 function updateHeader() {
   if (!currentMeta) return;
   symbolName.textContent    = currentMeta.symbol;
-  timeframeBadge.textContent = currentMeta.timeframe;
+}
+
+function updateTimeframeButtons() {
+  if (!tfSelector) return;
+  const buttons = tfSelector.querySelectorAll('.tf-btn');
+  const baseMinutes = TIMEFRAME_MINUTES[currentBaseTimeframe] || 1;
+
+  buttons.forEach(btn => {
+    const tf = btn.dataset.tf;
+    const minutes = TIMEFRAME_MINUTES[tf] || 1;
+    
+    // Disable if the target timeframe is smaller than the base timeframe
+    const isDisabled = minutes < baseMinutes;
+    btn.disabled = isDisabled;
+    
+    // Set active class
+    if (tf === currentTimeframe) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
+}
+
+async function switchTimeframe(targetTf) {
+  if (!currentBaseCandles || !currentMeta) return;
+  if (targetTf === currentTimeframe) return;
+
+  showLoading(`Switching to ${targetTf}…`);
+  await tick();
+
+  try {
+    let candles = aggregationCache[targetTf];
+    if (!candles) {
+      if (targetTf === currentBaseTimeframe) {
+        candles = currentBaseCandles;
+      } else {
+        candles = aggregateCandles(currentBaseCandles, targetTf);
+      }
+      aggregationCache[targetTf] = candles;
+    }
+
+    // Get current visible time range to preserve it
+    let visibleRange = null;
+    if (chartManager && chartManager.chart) {
+      try {
+        visibleRange = chartManager.chart.timeScale().getVisibleRange();
+      } catch (err) {
+        console.warn('Could not get visible time range:', err);
+      }
+    }
+
+    // Set new data on the chart
+    if (chartManager) {
+      chartManager.setData(candles);
+      
+      // Preserve visible time range if possible
+      if (visibleRange && visibleRange.from && visibleRange.to) {
+        try {
+          chartManager.chart.timeScale().setVisibleRange(visibleRange);
+        } catch (err) {
+          console.warn('Could not restore visible time range:', err);
+        }
+      }
+    }
+
+    currentTimeframe = targetTf;
+    updateTimeframeButtons();
+  } catch (err) {
+    console.error('Timeframe switch failed:', err);
+    notify('Failed to switch timeframe.', 'error');
+  } finally {
+    hideLoading();
+  }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  Event bindings
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// ── Test CSV loader ──
+if (btnLoadTest) {
+  btnLoadTest.addEventListener('click', async () => {
+    try {
+      showLoading('Loading test CSV…');
+      const resp = await fetch('/XAUUSDu_M1_202512190711_202604060756.csv');
+      const text = await resp.text();
+      await processFile({ text, fileName: 'XAUUSDu_M1_202512190711_202604060756.csv', fileSize: text.length });
+    } catch (e) {
+      console.error(e);
+      notify('Failed to load test CSV', 'error');
+    }
+  });
+}
 
 // ── File picker ──
 async function handleOpenFile() {
@@ -214,18 +316,41 @@ setupDragDrop(document.body, dropZone, async (fileData, error) => {
   if (fileData) await processFile(fileData);
 });
 
+// ── Timeframe selector ──
+if (tfSelector) {
+  tfSelector.addEventListener('click', (e) => {
+    const btn = e.target.closest('.tf-btn');
+    if (!btn || btn.disabled) return;
+    const targetTf = btn.dataset.tf;
+    switchTimeframe(targetTf);
+  });
+}
+
 // ── Edit meta ──
 btnEditMeta.addEventListener('click', async () => {
   if (!currentMeta) return;
   inputSymbol.value    = currentMeta.symbol;
-  inputTimeframe.value = currentMeta.timeframe;
+  inputTimeframe.value = currentBaseTimeframe;
 
   const choice = await showMetaModal();
   if (choice !== 'confirm') return;
 
-  currentMeta.symbol    = inputSymbol.value.trim() || currentMeta.symbol;
-  currentMeta.timeframe = inputTimeframe.value;
+  const newSymbol = inputSymbol.value.trim() || currentMeta.symbol;
+  const newBaseTf = inputTimeframe.value;
+
+  currentMeta.symbol = newSymbol;
+  currentMeta.timeframe = newBaseTf;
   updateHeader();
+
+  if (newBaseTf !== currentBaseTimeframe) {
+    currentBaseTimeframe = newBaseTf;
+    currentTimeframe = newBaseTf;
+    aggregationCache = { [newBaseTf]: currentBaseCandles };
+    updateTimeframeButtons();
+    if (chartManager) {
+      chartManager.setData(currentBaseCandles);
+    }
+  }
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -250,7 +375,14 @@ btnEditMeta.addEventListener('click', async () => {
 function loadDemo() {
   const candles = generateDemoData();
   currentMeta = { ...DEMO_META, firstTimestamp: candles[0].time, lastTimestamp: candles[candles.length - 1].time, candleCount: candles.length };
+  
+  currentBaseCandles = candles;
+  currentBaseTimeframe = DEMO_META.timeframe;
+  currentTimeframe = DEMO_META.timeframe;
+  aggregationCache = { [DEMO_META.timeframe]: candles };
+
   renderChart(candles);
   updateHeader();
+  updateTimeframeButtons();
   demoBanner?.classList.remove('hidden');
 }
