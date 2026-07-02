@@ -9,6 +9,7 @@ import { inferFromFilename } from './infer.js';
 import { openFilePicker, reopenLastFile, setupDragDrop, hasFileSystemAccess } from './file-loader.js';
 import { generateSignature, saveDataset, listDatasets, loadDataset, deleteDataset, saveUserState, setLastActiveSignature, getLastActiveSignature } from './db.js';
 import { ChartManager } from './chart.js';
+import { DrawingsManager } from './drawings.js';
 import { generateDemoData, DEMO_META } from './demo-data.js';
 import { aggregateCandles, TIMEFRAME_MINUTES } from './aggregation.js';
 
@@ -39,6 +40,7 @@ const datasetsEmpty   = document.getElementById('datasets-list-empty');
 const btnMockSave     = document.getElementById('btn-mock-save');
 
 let chartManager = null;
+let drawingsManager = null;
 let currentMeta  = null;
 let currentSignature = null;
 
@@ -46,6 +48,12 @@ let currentBaseCandles = null;
 let currentBaseTimeframe = null;
 let currentTimeframe = null;
 let aggregationCache = {};
+
+// Global Drawings State (persisted across chart destroys)
+let appMagnetMode = false;
+let appDrawingsLocked = false;
+let appDrawingsVisible = true;
+
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  Notifications
@@ -187,6 +195,62 @@ function renderChart(candles) {
   chartManager = new ChartManager(chartContainer, chartLegend);
   chartManager.init();
   chartManager.setData(candles);
+
+  // Initialize DrawingsManager
+  const canvas = document.getElementById('drawing-canvas');
+  if (drawingsManager) drawingsManager.destroy();
+  drawingsManager = new DrawingsManager(
+    chartManager.chart,
+    chartManager.candleSeries,
+    canvas,
+    document.getElementById('chart-wrapper'),
+    async (drawings) => {
+      if (currentSignature) {
+        try {
+          await saveUserState(currentSignature, { drawings });
+          refreshSidebarList();
+        } catch (e) {
+          console.error('[CandleFlow] Failed to autosave drawings:', e);
+        }
+      }
+    }
+  );
+
+  drawingsManager.setBaseCandles(candles);
+  drawingsManager.magnetMode = appMagnetMode;
+  drawingsManager.locked = appDrawingsLocked;
+  drawingsManager.visible = appDrawingsVisible;
+
+  syncToolbarButtons();
+}
+
+function syncToolbarButtons() {
+  const btnMagnet = document.getElementById('btn-toggle-magnet');
+  const btnLock = document.getElementById('btn-toggle-lock');
+  const btnVisible = document.getElementById('btn-toggle-visibility');
+
+  if (btnMagnet) btnMagnet.classList.toggle('enabled-active', appMagnetMode);
+  if (btnLock) {
+    btnLock.textContent = appDrawingsLocked ? '🔒' : '🔓';
+    btnLock.classList.toggle('enabled-active', appDrawingsLocked);
+  }
+  if (btnVisible) {
+    btnVisible.textContent = appDrawingsVisible ? '👁️' : '🙈';
+    btnVisible.classList.toggle('enabled-active', !appDrawingsVisible);
+  }
+  
+  // Reset selected tool button to active cursor
+  const toolbar = document.getElementById('drawing-toolbar');
+  if (toolbar) {
+    const toolButtons = toolbar.querySelectorAll('.tool-btn[data-tool]');
+    toolButtons.forEach(btn => {
+      if (btn.dataset.tool === 'cursor') {
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
+    });
+  }
 }
 
 function updateHeader() {
@@ -247,6 +311,9 @@ async function switchTimeframe(targetTf) {
     // Set new data on the chart
     if (chartManager) {
       chartManager.setData(candles);
+      if (drawingsManager) {
+        drawingsManager.setBaseCandles(candles);
+      }
       
       // Preserve visible time range if possible
       if (visibleRange && visibleRange.from && visibleRange.to) {
@@ -367,6 +434,9 @@ async function loadStoredDataset(signature) {
     });
 
     renderChart(data.candles);
+    if (drawingsManager) {
+      drawingsManager.setDrawings(data.drawings);
+    }
     updateHeader();
     updateTimeframeButtons();
     
@@ -573,11 +643,78 @@ btnEditMeta.addEventListener('click', async () => {
   }
 });
 
+function initDrawingToolbar() {
+  const toolbar = document.getElementById('drawing-toolbar');
+  if (!toolbar) return;
+
+  const toolButtons = toolbar.querySelectorAll('.tool-btn[data-tool]');
+  const btnMagnet = document.getElementById('btn-toggle-magnet');
+  const btnLock = document.getElementById('btn-toggle-lock');
+  const btnVisible = document.getElementById('btn-toggle-visibility');
+  const btnClear = document.getElementById('btn-clear-drawings');
+
+  toolButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      toolButtons.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const tool = btn.dataset.tool;
+      if (drawingsManager) {
+        drawingsManager.setTool(tool);
+      }
+    });
+  });
+
+  if (btnMagnet) {
+    btnMagnet.addEventListener('click', () => {
+      appMagnetMode = !appMagnetMode;
+      btnMagnet.classList.toggle('enabled-active', appMagnetMode);
+      if (drawingsManager) {
+        drawingsManager.magnetMode = appMagnetMode;
+      }
+      notify(appMagnetMode ? 'Magnet Snap Mode enabled' : 'Magnet Snap Mode disabled', 'info', 2000);
+    });
+  }
+
+  if (btnLock) {
+    btnLock.addEventListener('click', () => {
+      appDrawingsLocked = !appDrawingsLocked;
+      btnLock.textContent = appDrawingsLocked ? '🔒' : '🔓';
+      btnLock.classList.toggle('enabled-active', appDrawingsLocked);
+      if (drawingsManager) {
+        drawingsManager.toggleLock();
+      }
+      notify(appDrawingsLocked ? 'Drawings locked' : 'Drawings unlocked', 'info', 2000);
+    });
+  }
+
+  if (btnVisible) {
+    btnVisible.addEventListener('click', () => {
+      appDrawingsVisible = !appDrawingsVisible;
+      btnVisible.textContent = appDrawingsVisible ? '👁️' : '🙈';
+      btnVisible.classList.toggle('enabled-active', !appDrawingsVisible);
+      if (drawingsManager) {
+        drawingsManager.toggleVisibility();
+      }
+      notify(appDrawingsVisible ? 'Show drawings' : 'Hide drawings', 'info', 2000);
+    });
+  }
+
+  if (btnClear) {
+    btnClear.addEventListener('click', () => {
+      if (drawingsManager) {
+        drawingsManager.clearAllDrawings();
+      }
+    });
+  }
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  Init
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 (async () => {
+  initDrawingToolbar();
+
   // Attempt to reopen last file via saved handle (Chromium only)
   if (hasFileSystemAccess) {
     try {
