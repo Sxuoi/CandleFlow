@@ -135,6 +135,9 @@ Symbol name and timeframe are inferred from the filename where possible (e.g. `X
   - MACD — separate sub-pane
   - Bollinger Bands
   - VWAP
+  - Time Separator
+  - Volume
+  
 - Each indicator configurable (period, source, color) and persisted per dataset.
 
 ### Phase 4 — Drawing Tools (TradingView Parity) — *Critical path, highest design effort*
