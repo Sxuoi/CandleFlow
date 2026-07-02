@@ -698,4 +698,266 @@ dialog#meta-modal select:focus {
   pointer-events: none;
 }
 
+/* ════════════════════  Indicator Legend  ════════════════════ */
 
+#indicator-legend {
+  position: absolute;
+  top: 30px;
+  left: 14px;
+  z-index: 10;
+  font-size: 11px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--text-secondary);
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+  max-width: calc(100% - 80px);
+}
+
+.ind-legend-item {
+  white-space: nowrap;
+}
+
+.ind-legend-item b {
+  font-weight: 600;
+}
+
+/* ════════════════════  Indicator Modal  ════════════════════ */
+
+dialog#indicator-modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text-primary);
+  padding: 0;
+  max-width: 440px;
+  width: 90vw;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.6);
+  overflow: hidden;
+}
+
+dialog#indicator-modal::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+}
+
+.ind-modal-content {
+  display: flex;
+  flex-direction: column;
+  max-height: 70vh;
+}
+
+.ind-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ind-modal-header h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.ind-modal-close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 16px;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+
+.ind-modal-close:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.ind-modal-body {
+  padding: 16px 22px 22px;
+  overflow-y: auto;
+}
+
+/* ── Indicator Add Grid ── */
+
+.ind-add-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.ind-add-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 12px 6px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.2s, transform 0.1s;
+  font-family: inherit;
+}
+
+.ind-add-btn:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--accent);
+}
+
+.ind-add-btn:active {
+  transform: scale(0.96);
+}
+
+.ind-add-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.ind-add-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+/* ── Active Indicators Section ── */
+
+.ind-active-section h4 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+}
+
+.ind-active-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ind-active-list .ind-empty-msg {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-align: center;
+  padding: 12px 0;
+  opacity: 0.6;
+}
+
+.ind-active-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  transition: border-color 0.15s;
+}
+
+.ind-active-item:hover {
+  border-color: var(--accent);
+}
+
+.ind-active-item-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ind-active-item-color {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.ind-active-item-label {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.ind-active-item-config {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-left: 6px;
+}
+
+.ind-active-item-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.ind-item-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+
+.ind-item-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.ind-item-btn.delete:hover {
+  background: rgba(239, 83, 80, 0.15);
+  color: #ef5350;
+}
+
+/* ── Indicator config inline inputs ── */
+
+.ind-config-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 6px 10px 8px;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+}
+
+.ind-config-row label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.ind-config-row input {
+  width: 54px;
+  padding: 3px 6px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: inherit;
+  text-align: center;
+}
+
+.ind-config-row input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
