@@ -35,6 +35,7 @@
       </div>
     </div>
     <div id="bar-actions">
+      <button id="btn-indicators" title="Indicators">📊 Indicators</button>
       <button id="btn-load-test" title="Load sample XAUUSD M1 CSV">🧪 Test CSV</button>
       <button id="btn-open-file" title="Open CSV file">📂 Open</button>
       <button id="btn-edit-meta" title="Edit symbol / timeframe" disabled>✏️</button>
@@ -81,6 +82,8 @@
 
       <!-- OHLCV legend (updated on crosshair move) -->
       <div id="chart-legend"></div>
+      <!-- Indicator values legend (updated on crosshair move) -->
+      <div id="indicator-legend"></div>
 
       <!-- Drag-and-drop overlay -->
       <div id="drop-zone" class="hidden">
@@ -157,6 +160,64 @@
     </form>
   </dialog>
 
+  <!-- ═══════════ Indicator Settings Modal ═══════════ -->
+  <dialog id="indicator-modal">
+    <div class="ind-modal-content">
+      <div class="ind-modal-header">
+        <h3>Indicators</h3>
+        <button id="btn-close-ind-modal" class="ind-modal-close" title="Close">✕</button>
+      </div>
+
+      <div class="ind-modal-body">
+        <!-- Add Indicator Section -->
+        <div class="ind-add-section">
+          <div class="ind-add-grid">
+            <button class="ind-add-btn" data-ind-type="SMA">
+              <span class="ind-add-icon" style="color:#2962FF">━</span>
+              <span class="ind-add-label">SMA</span>
+            </button>
+            <button class="ind-add-btn" data-ind-type="EMA">
+              <span class="ind-add-icon" style="color:#FF9800">━</span>
+              <span class="ind-add-label">EMA</span>
+            </button>
+            <button class="ind-add-btn" data-ind-type="RSI">
+              <span class="ind-add-icon" style="color:#7B1FA2">〰</span>
+              <span class="ind-add-label">RSI</span>
+            </button>
+            <button class="ind-add-btn" data-ind-type="MACD">
+              <span class="ind-add-icon" style="color:#2962FF">📊</span>
+              <span class="ind-add-label">MACD</span>
+            </button>
+            <button class="ind-add-btn" data-ind-type="BB">
+              <span class="ind-add-icon" style="color:#9C27B0">⟨⟩</span>
+              <span class="ind-add-label">Bollinger</span>
+            </button>
+            <button class="ind-add-btn" data-ind-type="VWAP">
+              <span class="ind-add-icon" style="color:#FFD600">━</span>
+              <span class="ind-add-label">VWAP</span>
+            </button>
+            <button class="ind-add-btn" data-ind-type="TIME_SEP">
+              <span class="ind-add-icon" style="color:#787b86">┃</span>
+              <span class="ind-add-label">Time Sep</span>
+            </button>
+            <button class="ind-add-btn" data-ind-type="VOLUME">
+              <span class="ind-add-icon" style="color:#26a69a">▮</span>
+              <span class="ind-add-label">Volume</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Active Indicators List -->
+        <div class="ind-active-section">
+          <h4>Active Indicators</h4>
+          <ul id="ind-active-list" class="ind-active-list">
+            <li class="ind-empty-msg">No indicators active</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
   <!-- ═══════════ Loading Overlay ═══════════ -->
   <div id="loading-overlay" class="hidden">
     <div class="spinner"></div>
@@ -164,7 +225,7 @@
   </div>
 
   <!-- ═══════════ App Entry Point ═══════════ -->
-  <script type="module" src="js/app.js?v=3"></script>
+  <script type="module" src="js/app.js?v=4"></script>
 
 </body>
 </html>

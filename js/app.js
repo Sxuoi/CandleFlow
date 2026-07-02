@@ -1,7 +1,7 @@
 /**
  * CandleFlow — Application entry point
  *
- * Wires together: CSV parser, file loader, chart manager, IndexedDB, filename inference.
+ * Wires together: CSV parser, file loader, chart manager, IndexedDB, filename inference, indicators.
  */
 
 import { parseCSV } from './csv-parser.js';
@@ -10,6 +10,7 @@ import { openFilePicker, reopenLastFile, setupDragDrop, hasFileSystemAccess } fr
 import { generateSignature, saveDataset, listDatasets, loadDataset, deleteDataset, saveUserState, setLastActiveSignature, getLastActiveSignature } from './db.js';
 import { ChartManager } from './chart.js';
 import { DrawingsManager } from './drawings.js';
+import { IndicatorRenderer } from './indicator-renderer.js';
 import { generateDemoData, DEMO_META } from './demo-data.js';
 import { aggregateCandles, TIMEFRAME_MINUTES } from './aggregation.js';
 
@@ -41,6 +42,7 @@ const btnMockSave     = document.getElementById('btn-mock-save');
 
 let chartManager = null;
 let drawingsManager = null;
+let indicatorRenderer = null;
 let currentMeta  = null;
 let currentSignature = null;
 
@@ -53,6 +55,9 @@ let aggregationCache = {};
 let appMagnetMode = false;
 let appDrawingsLocked = false;
 let appDrawingsVisible = true;
+
+// Indicator state for persistence across chart destroys
+let pendingIndicators = null;
 
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -192,6 +197,7 @@ function tick() { return new Promise((r) => setTimeout(r, 0)); }
 
 function renderChart(candles) {
   if (chartManager) chartManager.destroy();
+  if (indicatorRenderer) { indicatorRenderer.destroy(); indicatorRenderer = null; }
   chartManager = new ChartManager(chartContainer, chartLegend);
   chartManager.init();
   chartManager.setData(candles);
@@ -220,6 +226,31 @@ function renderChart(candles) {
   drawingsManager.magnetMode = appMagnetMode;
   drawingsManager.locked = appDrawingsLocked;
   drawingsManager.visible = appDrawingsVisible;
+
+  // Initialize IndicatorRenderer
+  const indicatorLegend = document.getElementById('indicator-legend');
+  indicatorRenderer = new IndicatorRenderer(
+    chartManager.chart,
+    chartManager.candleSeries,
+    chartManager.volumeSeries,
+    indicatorLegend,
+    async (indicators) => {
+      if (currentSignature) {
+        try {
+          await saveUserState(currentSignature, { indicators });
+        } catch (e) {
+          console.error('[CandleFlow] Failed to autosave indicators:', e);
+        }
+      }
+    }
+  );
+  indicatorRenderer.setCandles(candles, currentTimeframe || currentBaseTimeframe);
+
+  // Restore pending indicators if any (from dataset load)
+  if (pendingIndicators) {
+    indicatorRenderer.setIndicators(pendingIndicators);
+    pendingIndicators = null;
+  }
 
   syncToolbarButtons();
 }
@@ -313,6 +344,10 @@ async function switchTimeframe(targetTf) {
       chartManager.setData(candles);
       if (drawingsManager) {
         drawingsManager.setBaseCandles(candles);
+      }
+      // Recalculate indicators for the new timeframe
+      if (indicatorRenderer) {
+        indicatorRenderer.recalculateAll(candles, targetTf);
       }
       
       // Preserve visible time range if possible
@@ -432,6 +467,9 @@ async function loadStoredDataset(signature) {
       indicatorsCount: data.indicators.length,
       replayState: data.replayState
     });
+
+    // Queue indicators to be restored after chart init
+    pendingIndicators = data.indicators && data.indicators.length > 0 ? data.indicators : null;
 
     renderChart(data.candles);
     if (drawingsManager) {
@@ -709,11 +747,160 @@ function initDrawingToolbar() {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  Indicator Panel
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const INDICATOR_DISPLAY = {
+  SMA:      { label: 'SMA', color: '#2962FF', configFields: ['period'] },
+  EMA:      { label: 'EMA', color: '#FF9800', configFields: ['period'] },
+  RSI:      { label: 'RSI', color: '#7B1FA2', configFields: ['period'] },
+  MACD:     { label: 'MACD', color: '#2962FF', configFields: ['fastPeriod', 'slowPeriod', 'signalPeriod'] },
+  BB:       { label: 'Bollinger Bands', color: '#9C27B0', configFields: ['period', 'stddev'] },
+  VWAP:     { label: 'VWAP', color: '#FFD600', configFields: [] },
+  TIME_SEP: { label: 'Time Separator', color: '#787b86', configFields: [] },
+  VOLUME:   { label: 'Volume', color: '#26a69a', configFields: [] },
+};
+
+function initIndicatorPanel() {
+  const btnIndicators = document.getElementById('btn-indicators');
+  const indModal = document.getElementById('indicator-modal');
+  const btnCloseIndModal = document.getElementById('btn-close-ind-modal');
+  const indActiveList = document.getElementById('ind-active-list');
+
+  if (!btnIndicators || !indModal) return;
+
+  // Open modal
+  btnIndicators.addEventListener('click', () => {
+    refreshIndActiveList();
+    indModal.showModal();
+  });
+
+  // Close modal
+  if (btnCloseIndModal) {
+    btnCloseIndModal.addEventListener('click', () => indModal.close());
+  }
+  indModal.addEventListener('click', (e) => {
+    if (e.target === indModal) indModal.close();
+  });
+
+  // Add indicator buttons
+  const addBtns = indModal.querySelectorAll('.ind-add-btn[data-ind-type]');
+  addBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const type = btn.dataset.indType;
+      if (!indicatorRenderer) {
+        notify('Load a dataset first to add indicators.', 'warning');
+        return;
+      }
+      indicatorRenderer.addIndicator(type);
+      refreshIndActiveList();
+      notify(`Added ${INDICATOR_DISPLAY[type]?.label || type}`, 'success', 2000);
+    });
+  });
+
+  // Active list click delegation (remove buttons)
+  if (indActiveList) {
+    indActiveList.addEventListener('click', (e) => {
+      const removeBtn = e.target.closest('.ind-item-btn.delete');
+      if (removeBtn && indicatorRenderer) {
+        const id = removeBtn.dataset.indId;
+        indicatorRenderer.removeIndicator(id);
+        refreshIndActiveList();
+        notify('Indicator removed', 'info', 2000);
+      }
+    });
+
+    // Handle config input changes
+    indActiveList.addEventListener('change', (e) => {
+      const input = e.target.closest('.ind-config-input');
+      if (!input || !indicatorRenderer) return;
+      const id = input.dataset.indId;
+      const field = input.dataset.field;
+      const val = parseFloat(input.value);
+      if (isNaN(val) || val <= 0) return;
+      indicatorRenderer.updateIndicator(id, { [field]: val });
+      refreshIndActiveList();
+    });
+  }
+}
+
+function refreshIndActiveList() {
+  const indActiveList = document.getElementById('ind-active-list');
+  if (!indActiveList || !indicatorRenderer) return;
+
+  const items = [];
+
+  // Volume toggle
+  if (indicatorRenderer.isVolumeVisible()) {
+    items.push({ id: 'volume', type: 'VOLUME', config: {} });
+  }
+
+  // Regular indicators
+  for (const entry of indicatorRenderer.indicators.values()) {
+    items.push({ id: entry.id, type: entry.type, config: { ...entry.config } });
+  }
+
+  if (items.length === 0) {
+    indActiveList.innerHTML = '<li class="ind-empty-msg">No indicators active</li>';
+    return;
+  }
+
+  indActiveList.innerHTML = '';
+  for (const item of items) {
+    const display = INDICATOR_DISPLAY[item.type] || { label: item.type, color: '#d1d4dc', configFields: [] };
+    const li = document.createElement('li');
+    li.className = 'ind-active-item';
+
+    // Config summary
+    let configText = '';
+    if (item.type === 'SMA' || item.type === 'EMA') configText = `Period: ${item.config.period}`;
+    else if (item.type === 'RSI') configText = `Period: ${item.config.period}`;
+    else if (item.type === 'BB') configText = `${item.config.period}, ${item.config.stddev}σ`;
+    else if (item.type === 'MACD') configText = `${item.config.fastPeriod}/${item.config.slowPeriod}/${item.config.signalPeriod}`;
+
+    li.innerHTML = `
+      <div class="ind-active-item-info">
+        <span class="ind-active-item-color" style="background:${display.color}"></span>
+        <span class="ind-active-item-label">${display.label}</span>
+        <span class="ind-active-item-config">${configText}</span>
+      </div>
+      <div class="ind-active-item-actions">
+        <button class="ind-item-btn delete" data-ind-id="${item.id}" title="Remove">🗑️</button>
+      </div>
+    `;
+
+    // Inline config row (if configurable)
+    if (display.configFields.length > 0 && item.id !== 'volume') {
+      const configRow = document.createElement('div');
+      configRow.className = 'ind-config-row';
+      for (const field of display.configFields) {
+        const label = document.createElement('label');
+        label.textContent = field.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.min = '1';
+        input.step = field === 'stddev' ? '0.5' : '1';
+        input.value = item.config[field] ?? '';
+        input.className = 'ind-config-input';
+        input.dataset.indId = item.id;
+        input.dataset.field = field;
+        configRow.appendChild(label);
+        configRow.appendChild(input);
+      }
+      li.appendChild(configRow);
+    }
+
+    indActiveList.appendChild(li);
+  }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  Init
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 (async () => {
   initDrawingToolbar();
+  initIndicatorPanel();
 
   // Attempt to reopen last file via saved handle (Chromium only)
   if (hasFileSystemAccess) {
