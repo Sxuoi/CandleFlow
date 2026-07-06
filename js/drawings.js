@@ -6,14 +6,26 @@
  * All positions are saved in time-price space and projected onto the canvas.
  */
 
+const TIMEFRAME_MINUTES = {
+  'M1': 1,
+  'M5': 5,
+  'M15': 15,
+  'M30': 30,
+  'H1': 60,
+  'H4': 240,
+  'D1': 1440,
+  'W1': 10080
+};
+
 export class DrawingsManager {
-  constructor(chart, candleSeries, canvas, container, onDrawingsChanged) {
+  constructor(chart, candleSeries, canvas, container, onDrawingsChanged, getCurrentTimeframe) {
     this.chart = chart;
     this.series = candleSeries;
     this.canvas = canvas;
     this.container = container; // chart-wrapper div
     this.ctx = canvas.getContext('2d');
     this.onDrawingsChanged = onDrawingsChanged || (() => {});
+    this.getCurrentTimeframe = getCurrentTimeframe || (() => 'M1');
 
     this.drawings = [];
     this.activeTool = 'cursor'; // cursor, trend, horizontal, path, brush, text, ruler, zoom
@@ -126,12 +138,65 @@ export class DrawingsManager {
 
   // ── Snapping & Projections ──
 
+  findCandleIndex(time) {
+    if (!time || this.baseCandles.length === 0) return -1;
+    let low = 0;
+    let high = this.baseCandles.length - 1;
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const t = this.baseCandles[mid].time;
+      if (t === time) return mid;
+      if (t < time) {
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    return -1;
+  }
+
   timeToX(time) {
-    return this.chart.timeScale().timeToCoordinate(time);
+    let x = this.chart.timeScale().timeToCoordinate(time);
+    if (x !== null) return x;
+
+    // Fallback for future times (beyond active timescale in replay mode)
+    if (this.baseCandles.length === 0) return null;
+    const lastCandle = this.baseCandles[this.baseCandles.length - 1];
+    
+    const lastX = this.chart.timeScale().timeToCoordinate(lastCandle.time);
+    if (lastX === null) return null;
+
+    const timeDiff = time - lastCandle.time;
+    const tf = this.getCurrentTimeframe();
+    const tfMinutes = TIMEFRAME_MINUTES[tf] || 1;
+    const tfSeconds = tfMinutes * 60;
+
+    const numBars = timeDiff / tfSeconds;
+    const barSpacing = this.chart.timeScale().options().barSpacing || 6;
+    
+    return lastX + numBars * barSpacing;
   }
 
   xToTime(x) {
-    return this.chart.timeScale().coordinateToTime(x);
+    let time = this.chart.timeScale().coordinateToTime(x);
+    if (time !== null) return time;
+
+    // Fallback for future coordinates (right of the last candle in replay mode)
+    if (this.baseCandles.length === 0) return null;
+    const lastCandle = this.baseCandles[this.baseCandles.length - 1];
+    
+    const lastX = this.chart.timeScale().timeToCoordinate(lastCandle.time);
+    if (lastX === null) return null;
+
+    const barSpacing = this.chart.timeScale().options().barSpacing || 6;
+    const numBars = (x - lastX) / barSpacing;
+
+    const tf = this.getCurrentTimeframe();
+    const tfMinutes = TIMEFRAME_MINUTES[tf] || 1;
+    const tfSeconds = tfMinutes * 60;
+
+    const timeOffset = Math.round(numBars) * tfSeconds;
+    return lastCandle.time + timeOffset;
   }
 
   priceToY(price) {
@@ -486,7 +551,7 @@ export class DrawingsManager {
       this.isDrawing = false;
       let newDrawing;
       if (this.activeTool === 'long_position' || this.activeTool === 'short_position') {
-        const idx = this.baseCandles.findIndex(c => c.time === snapped.time);
+        const idx = this.findCandleIndex(snapped.time);
         let rightTime = snapped.time + 20 * 60; // default 20 mins
         if (idx !== -1 && idx + 20 < this.baseCandles.length) {
           rightTime = this.baseCandles[idx + 20].time;
@@ -1122,8 +1187,8 @@ export class DrawingsManager {
       const time2 = d.points[1].time;
       let barCount = 0;
       if (this.baseCandles.length > 0 && time1 !== null && time2 !== null) {
-        const i1 = this.baseCandles.findIndex(c => c.time === time1);
-        const i2 = this.baseCandles.findIndex(c => c.time === time2);
+        const i1 = this.findCandleIndex(time1);
+        const i2 = this.findCandleIndex(time2);
         if (i1 !== -1 && i2 !== -1) {
           barCount = Math.abs(i2 - i1);
         }
@@ -1334,8 +1399,8 @@ export class DrawingsManager {
       const time2 = d.points[1].time;
       let barCount = 0;
       if (this.baseCandles.length > 0 && time1 !== null && time2 !== null) {
-        const i1 = this.baseCandles.findIndex(c => c.time === time1);
-        const i2 = this.baseCandles.findIndex(c => c.time === time2);
+        const i1 = this.findCandleIndex(time1);
+        const i2 = this.findCandleIndex(time2);
         if (i1 !== -1 && i2 !== -1) {
           barCount = Math.abs(i2 - i1);
         }

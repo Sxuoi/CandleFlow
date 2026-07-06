@@ -69,6 +69,97 @@ export class IndicatorRenderer {
     this.timeframe = timeframe || this.timeframe;
   }
 
+  /**
+   * Incrementally calculate and update indicators for a new candle step.
+   * @param {Array} candles All active candles up to the new step.
+   * @param {string} timeframe Current timeframe.
+   */
+  update(candles, timeframe) {
+    this.candles = candles;
+    this.timeframe = timeframe || this.timeframe;
+    if (candles.length === 0) return;
+
+    for (const entry of this.indicators.values()) {
+      this._calculateAndUpdate(entry);
+    }
+  }
+
+  _calculateAndUpdate(entry) {
+    const { type, config } = entry;
+    const candles = this.candles;
+    if (!candles || candles.length === 0) return;
+
+    switch (type) {
+      case 'SMA': {
+        const data = calcSMA(candles, config.period, config.source);
+        if (data.length > 0) {
+          entry.series[0].update(data[data.length - 1]);
+          entry.data = data;
+        }
+        break;
+      }
+      case 'EMA': {
+        const data = calcEMA(candles, config.period, config.source);
+        if (data.length > 0) {
+          entry.series[0].update(data[data.length - 1]);
+          entry.data = data;
+        }
+        break;
+      }
+      case 'BB': {
+        const { upper, middle, lower } = calcBollingerBands(
+          candles, config.period, config.stddev, config.source
+        );
+        if (upper.length > 0) {
+          entry.series[0].update(upper[upper.length - 1]);
+          entry.series[1].update(middle[middle.length - 1]);
+          entry.series[2].update(lower[lower.length - 1]);
+          entry.data = { upper, middle, lower };
+        }
+        break;
+      }
+      case 'VWAP': {
+        const data = calcVWAP(candles);
+        if (data.length > 0) {
+          entry.series[0].update(data[data.length - 1]);
+          entry.data = data;
+        }
+        break;
+      }
+      case 'RSI': {
+        const data = calcRSI(candles, config.period);
+        if (data.length > 0) {
+          const last = data[data.length - 1];
+          entry.series[0].update(last);
+          const obVal = config.overbought || 70;
+          const osVal = config.oversold || 30;
+          entry.series[1].update({ time: last.time, value: obVal });
+          entry.series[2].update({ time: last.time, value: osVal });
+          entry.data = data;
+        }
+        break;
+      }
+      case 'MACD': {
+        const { macd, signal, histogram } = calcMACD(
+          candles, config.fastPeriod, config.slowPeriod, config.signalPeriod
+        );
+        if (macd.length > 0) {
+          entry.series[0].update(histogram[histogram.length - 1]);
+          entry.series[1].update(macd[macd.length - 1]);
+          entry.series[2].update(signal[signal.length - 1]);
+          entry.data = { macd, signal, histogram };
+        }
+        break;
+      }
+      case 'TIME_SEP': {
+        const seps = calcTimeSeparators(candles, this.timeframe);
+        entry.data = seps;
+        this._applyTimeSeparators(seps, config);
+        break;
+      }
+    }
+  }
+
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   //  Add / Remove / Update
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

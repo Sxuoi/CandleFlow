@@ -113,6 +113,29 @@ export class ChartManager {
     }
   }
 
+  /**
+   * Incrementally update or append a single candle.
+   * @param {object} c Single candle data
+   */
+  update(c) {
+    this.candleSeries.update({
+      time: c.time,
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close
+    });
+
+    this.volumeSeries.update({
+      time: c.time,
+      value: c.volume,
+      color: c.close >= c.open ? 'rgba(38,166,154,0.5)' : 'rgba(239,83,80,0.5)',
+    });
+
+    this._lastCandle = c;
+    this._updateLegend(c);
+  }
+
   /** Update the OHLCV legend overlay. */
   _updateLegend(d) {
     if (!this.legendEl) return;

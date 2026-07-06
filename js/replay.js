@@ -175,7 +175,7 @@ export class ReplayManager {
     this._removeToolbar();
 
     // Restore full dataset
-    this.onUpdateData(this.getBaseCandles(), this.getCurrentTimeframe());
+    this.onUpdateData(this.getBaseCandles(), this.getCurrentTimeframe(), true);
     this._notifyState();
   }
 
@@ -255,11 +255,11 @@ export class ReplayManager {
       <button class="replay-btn" id="replay-btn-step" title="Step Forward (Right Arrow)">➡️</button>
       <div class="replay-speed-wrapper">
         <select id="replay-speed-select" title="Speed selector">
-          <option value="5">5s / bar</option>
-          <option value="3">3s / bar</option>
           <option value="2">2s / bar</option>
           <option value="1" selected>1s / bar</option>
           <option value="0.5">0.5s / bar</option>
+          <option value="0.3">0.3s / bar</option>
+          <option value="0.2">0.2s / bar</option>
         </select>
       </div>
       <button class="replay-btn exit" id="replay-btn-exit" title="Exit Replay (Esc)">✕</button>

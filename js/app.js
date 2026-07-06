@@ -8,10 +8,10 @@ import { parseCSV } from './csv-parser.js';
 import { inferFromFilename } from './infer.js';
 import { openFilePicker, reopenLastFile, setupDragDrop, hasFileSystemAccess } from './file-loader.js';
 import { generateSignature, saveDataset, listDatasets, loadDataset, deleteDataset, saveUserState, setLastActiveSignature, getLastActiveSignature } from './db.js';
-import { ChartManager } from './chart.js';
-import { DrawingsManager } from './drawings.js';
-import { IndicatorRenderer } from './indicator-renderer.js';
-import { ReplayManager } from './replay.js';
+import { ChartManager } from './chart.js?v=2';
+import { DrawingsManager } from './drawings.js?v=2';
+import { IndicatorRenderer } from './indicator-renderer.js?v=2';
+import { ReplayManager } from './replay.js?v=2';
 import { generateDemoData, DEMO_META } from './demo-data.js';
 import { aggregateCandles, TIMEFRAME_MINUTES } from './aggregation.js';
 
@@ -199,6 +199,9 @@ async function processFile({ text, fileName, fileSize }) {
 function tick() { return new Promise((r) => setTimeout(r, 0)); }
 
 function renderChart(candles) {
+  let prevCandlesCount = 0;
+  let prevCandlesTimeframe = '';
+
   if (chartManager) chartManager.destroy();
   if (indicatorRenderer) { indicatorRenderer.destroy(); indicatorRenderer = null; }
   chartManager = new ChartManager(chartContainer, chartLegend);
@@ -222,7 +225,8 @@ function renderChart(candles) {
           console.error('[CandleFlow] Failed to autosave drawings:', e);
         }
       }
-    }
+    },
+    () => currentTimeframe || currentBaseTimeframe
   );
 
   drawingsManager.setBaseCandles(candles);
@@ -262,7 +266,7 @@ function renderChart(candles) {
     getBaseCandles: () => currentBaseCandles,
     getBaseTimeframe: () => currentBaseTimeframe,
     getCurrentTimeframe: () => currentTimeframe || currentBaseTimeframe,
-    onUpdateData: (truncatedBaseCandles, tf) => {
+    onUpdateData: (truncatedBaseCandles, tf, fitContent = false) => {
       let activeCandles;
       if (tf === currentBaseTimeframe) {
         activeCandles = truncatedBaseCandles;
@@ -270,11 +274,30 @@ function renderChart(candles) {
         activeCandles = aggregateCandles(truncatedBaseCandles, tf);
       }
 
-      if (chartManager) chartManager.setData(activeCandles, false);
-      if (drawingsManager) drawingsManager.setBaseCandles(activeCandles);
-      if (indicatorRenderer) indicatorRenderer.recalculateAll(activeCandles, tf);
+      const isIncremental = (
+        tf === prevCandlesTimeframe &&
+        activeCandles.length > 0 &&
+        (activeCandles.length === prevCandlesCount || activeCandles.length === prevCandlesCount + 1)
+      );
+
+      if (isIncremental) {
+        const lastCandle = activeCandles[activeCandles.length - 1];
+        if (chartManager) chartManager.update(lastCandle);
+        if (drawingsManager) drawingsManager.setBaseCandles(activeCandles);
+        if (indicatorRenderer) indicatorRenderer.update(activeCandles, tf);
+      } else {
+        if (chartManager) chartManager.setData(activeCandles, fitContent);
+        if (drawingsManager) drawingsManager.setBaseCandles(activeCandles);
+        if (indicatorRenderer) indicatorRenderer.recalculateAll(activeCandles, tf);
+      }
+
+      prevCandlesCount = activeCandles.length;
+      prevCandlesTimeframe = tf;
     },
     onStateChange: async (state) => {
+      if (drawingsManager) {
+        drawingsManager.cancelActiveDrawing();
+      }
       const btnReplay = document.getElementById('btn-replay');
       if (btnReplay) {
         btnReplay.classList.toggle('active', !!state);
