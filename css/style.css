@@ -961,3 +961,105 @@ dialog#indicator-modal::backdrop {
   outline: none;
   border-color: var(--accent);
 }
+
+/* ════════════════════  Floating Replay Toolbar  ════════════════════ */
+
+.floating-replay-toolbar {
+  position: absolute;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(30, 34, 45, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 6px 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  user-select: none;
+  transition: transform 0.15s ease-out;
+}
+
+.replay-drag-handle {
+  color: var(--text-secondary);
+  cursor: move;
+  padding: 0 6px 0 2px;
+  font-size: 14px;
+  font-weight: bold;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.replay-drag-handle:hover {
+  opacity: 1;
+}
+
+.replay-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.replay-btn:hover {
+  background: var(--bg-tertiary);
+}
+
+.replay-btn:active {
+  transform: scale(0.92);
+}
+
+.replay-btn.exit {
+  color: var(--text-secondary);
+  margin-left: 4px;
+  font-size: 12px;
+  border-left: 1px solid var(--border);
+  border-radius: 0 6px 6px 0;
+  width: 28px;
+}
+
+.replay-btn.exit:hover {
+  background: rgba(239, 83, 80, 0.15);
+  color: #ef5350;
+}
+
+.replay-speed-wrapper {
+  margin-left: 6px;
+  padding-left: 6px;
+  border-left: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+}
+
+#replay-speed-select {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+#replay-speed-select:focus {
+  border-color: var(--accent);
+}
+
+/* Cursor style override for selection mode */
+.replay-select-cursor,
+.replay-select-cursor * {
+  cursor: cell !important; /* target/cell cursor */
+}
+

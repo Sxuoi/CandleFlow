@@ -41,6 +41,7 @@ export class ChartManager {
         borderColor: '#2a2e39',
         timeVisible: true,
         secondsVisible: false,
+        rightOffset: 25, // default offset to avoid sticking to right edge
       },
       handleScroll: { vertTouchDrag: false },
     });
@@ -89,8 +90,9 @@ export class ChartManager {
   /**
    * Feed candle data into the chart.
    * @param {Array<{time:number, open:number, high:number, low:number, close:number, volume:number}>} candles
+   * @param {boolean} fitContent Whether to auto-fit the content
    */
-  setData(candles) {
+  setData(candles, fitContent = true) {
     this.candleSeries.setData(
       candles.map(c => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close })),
     );
@@ -106,7 +108,9 @@ export class ChartManager {
     this._lastCandle = candles.length > 0 ? candles[candles.length - 1] : null;
     if (this._lastCandle) this._updateLegend(this._lastCandle);
 
-    this.chart.timeScale().fitContent();
+    if (fitContent) {
+      this.chart.timeScale().fitContent();
+    }
   }
 
   /** Update the OHLCV legend overlay. */

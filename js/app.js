@@ -11,6 +11,7 @@ import { generateSignature, saveDataset, listDatasets, loadDataset, deleteDatase
 import { ChartManager } from './chart.js';
 import { DrawingsManager } from './drawings.js';
 import { IndicatorRenderer } from './indicator-renderer.js';
+import { ReplayManager } from './replay.js';
 import { generateDemoData, DEMO_META } from './demo-data.js';
 import { aggregateCandles, TIMEFRAME_MINUTES } from './aggregation.js';
 
@@ -43,6 +44,7 @@ const btnMockSave     = document.getElementById('btn-mock-save');
 let chartManager = null;
 let drawingsManager = null;
 let indicatorRenderer = null;
+let replayManager = null;
 let currentMeta  = null;
 let currentSignature = null;
 
@@ -58,6 +60,7 @@ let appDrawingsVisible = true;
 
 // Indicator state for persistence across chart destroys
 let pendingIndicators = null;
+let pendingReplayState = null;
 
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -252,6 +255,47 @@ function renderChart(candles) {
     pendingIndicators = null;
   }
 
+  // Initialize ReplayManager
+  if (replayManager) replayManager.destroy();
+  replayManager = new ReplayManager({
+    chartManager,
+    getBaseCandles: () => currentBaseCandles,
+    getBaseTimeframe: () => currentBaseTimeframe,
+    getCurrentTimeframe: () => currentTimeframe || currentBaseTimeframe,
+    onUpdateData: (truncatedBaseCandles, tf) => {
+      let activeCandles;
+      if (tf === currentBaseTimeframe) {
+        activeCandles = truncatedBaseCandles;
+      } else {
+        activeCandles = aggregateCandles(truncatedBaseCandles, tf);
+      }
+
+      if (chartManager) chartManager.setData(activeCandles, false);
+      if (drawingsManager) drawingsManager.setBaseCandles(activeCandles);
+      if (indicatorRenderer) indicatorRenderer.recalculateAll(activeCandles, tf);
+    },
+    onStateChange: async (state) => {
+      const btnReplay = document.getElementById('btn-replay');
+      if (btnReplay) {
+        btnReplay.classList.toggle('active', !!state);
+      }
+      if (currentSignature) {
+        try {
+          await saveUserState(currentSignature, { replayState: state });
+          refreshSidebarList();
+        } catch (e) {
+          console.error('[CandleFlow] Failed to autosave replayState:', e);
+        }
+      }
+    }
+  });
+
+  // Restore pending replayState
+  if (pendingReplayState) {
+    replayManager.loadSavedState(pendingReplayState);
+    pendingReplayState = null;
+  }
+
   syncToolbarButtons();
 }
 
@@ -311,6 +355,28 @@ function updateTimeframeButtons() {
   });
 }
 
+function getCandlesForTimeframe(timeframe) {
+  const baseCandles = replayManager && replayManager.active ? replayManager.getTruncatedCandles() : currentBaseCandles;
+  if (!baseCandles) return [];
+
+  if (timeframe === currentBaseTimeframe) {
+    return baseCandles;
+  }
+
+  // If replay is active, aggregate on the fly (since length changes constantly)
+  if (replayManager && replayManager.active) {
+    return aggregateCandles(baseCandles, timeframe);
+  }
+
+  // Otherwise, use cache
+  let candles = aggregationCache[timeframe];
+  if (!candles) {
+    candles = aggregateCandles(baseCandles, timeframe);
+    aggregationCache[timeframe] = candles;
+  }
+  return candles;
+}
+
 async function switchTimeframe(targetTf) {
   if (!currentBaseCandles || !currentMeta) return;
   if (targetTf === currentTimeframe) return;
@@ -319,15 +385,7 @@ async function switchTimeframe(targetTf) {
   await tick();
 
   try {
-    let candles = aggregationCache[targetTf];
-    if (!candles) {
-      if (targetTf === currentBaseTimeframe) {
-        candles = currentBaseCandles;
-      } else {
-        candles = aggregateCandles(currentBaseCandles, targetTf);
-      }
-      aggregationCache[targetTf] = candles;
-    }
+    let candles = getCandlesForTimeframe(targetTf);
 
     // Get current visible time range to preserve it
     let visibleRange = null;
@@ -341,7 +399,8 @@ async function switchTimeframe(targetTf) {
 
     // Set new data on the chart
     if (chartManager) {
-      chartManager.setData(candles);
+      const isReplay = replayManager && replayManager.active;
+      chartManager.setData(candles, !isReplay);
       if (drawingsManager) {
         drawingsManager.setBaseCandles(candles);
       }
@@ -470,6 +529,7 @@ async function loadStoredDataset(signature) {
 
     // Queue indicators to be restored after chart init
     pendingIndicators = data.indicators && data.indicators.length > 0 ? data.indicators : null;
+    pendingReplayState = data.replayState || null;
 
     renderChart(data.candles);
     if (drawingsManager) {
@@ -741,6 +801,24 @@ function initDrawingToolbar() {
     btnClear.addEventListener('click', () => {
       if (drawingsManager) {
         drawingsManager.clearAllDrawings();
+      }
+    });
+  }
+
+  const btnReplay = document.getElementById('btn-replay');
+  if (btnReplay) {
+    btnReplay.addEventListener('click', () => {
+      if (!currentBaseCandles) {
+        notify('Please load a dataset first to use replay.', 'warning');
+        return;
+      }
+      if (replayManager) {
+        if (replayManager.active) {
+          replayManager.exit();
+        } else {
+          replayManager.startSelection();
+          notify('Click a candle on the chart to set the starting replay point.', 'info', 4000);
+        }
       }
     });
   }
